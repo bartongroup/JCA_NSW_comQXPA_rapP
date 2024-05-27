@@ -3,6 +3,9 @@
 import gzip
 import requests
 
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 from json import loads
 from lxml import etree
 from pathlib import Path
@@ -130,6 +133,51 @@ def download_assembly(accession, local_genome):
                 if chunk:
                     fh.write(chunk)
 
+def get_gene_sequences(local_genome):
+
+    """
+    Parses the downloaded genome record to extract the comP and xxxxx[TODO: TBD] sequences
+
+    required parameters:
+        local_genome(libpath.Path): Path to local copy of record
+
+    returns:
+        gene_seqs(dict): dictionary containing gene and amino acid sequences 
+                         as BioSeq objects, keyed on seq ID
+    """
+
+    required_genes = ['comP']
+    gene_seqs = dict()
+    accession = str(local_genome.stem).replace('.embl','')
+
+    with gzip.open(local_genome, 'rt') as fh:
+        for record in SeqIO.parse(fh, format = 'embl'):
+            for feature in record.features:
+
+                # Handle genes by extracting subsequence from record
+                if feature.type == 'gene':
+                    if 'gene' in feature.qualifiers.keys() and feature.qualifiers.get('gene')[0] in required_genes:
+
+                        gene = feature.extract(record)
+                        id = f'{accession}_{feature.qualifiers.get('gene')[0]}_gene'
+                        gene.id = id
+                        gene_seqs[id] = gene
+
+                # CDS feature contain the protein sequence as a 'translation' qualifier
+                elif feature.type == 'CDS':
+
+                    if 'gene' in feature.qualifiers.keys() and feature.qualifiers.get('gene')[0] in required_genes:
+                        if 'translation' in feature.qualifiers.keys():
+
+                            prot_seq = feature.qualifiers.get('translation')[0]
+                            id = f'{accession}_{feature.qualifiers.get('gene')[0]}_protein'
+                            protein = SeqRecord(Seq(prot_seq), id = id)
+
+                            gene_seqs[id] = protein
+
+    return(gene_seqs)
+
+
 def main():
 
     xml_dir = Path(__file__).parents[1] / Path('xml')
@@ -139,6 +187,8 @@ def main():
     genome_dir.mkdir(exist_ok = True)
 
     genome_info = search_available()
+
+    all_seqs = list()
 
     for assembly in tqdm(genome_info):
 
@@ -152,6 +202,8 @@ def main():
 
         if complete:
             download_assembly(accession, local_genome)
+            gene_seqs = get_gene_sequences(local_genome)
+            all_seqs.append(gene_seqs)
 
         break
 
