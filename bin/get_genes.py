@@ -15,6 +15,7 @@ from tqdm import tqdm
 
 from pprint import pprint
 
+NCBI_TAXID     = '1423'
 REQUIRED_GENES = ['comP']
 
 """
@@ -42,6 +43,7 @@ def make_request(uri):
     return(r.text)
 
 def search_available():
+    
     """
     Carries out search of ENA using portal api to identify available genomes 
 
@@ -52,13 +54,14 @@ def search_available():
         genome_info(dict)
     """
 
-    uri = f"{ENA_URI}portal/api/search?result=assembly&query=tax_tree(1423)&fields=assembly_title,tax_id&format=json"
+    uri = f"{ENA_URI}portal/api/search?result=assembly&query=tax_tree({NCBI_TAXID})&fields=assembly_title,tax_id&format=json"
     result = make_request(uri)
     json = loads(result)
 
     return(json)
 
 def download_assembly_xml(local_file, accession):
+
     """
     Retrieves details on an assembly from EBI
 
@@ -206,6 +209,7 @@ def get_gene_sequences(local_genome):
     return(gene_seqs)
 
 def write_outputs(all_seqs, output_dir):
+
     """
     Writes fasta formatted records for each gene/protein
 
@@ -244,6 +248,7 @@ def write_outputs(all_seqs, output_dir):
 
 def main():
 
+    # Locations for storing various data types
     xml_dir    = Path(__file__).parents[1] / Path('xml')
     genome_dir = Path(__file__).parents[1] / Path('genomes')
     output_dir = Path(__file__).parents[1] / Path('outputs')
@@ -252,8 +257,10 @@ def main():
     genome_dir.mkdir(exist_ok = True)
     output_dir.mkdir(exist_ok = True)
 
+    # list for storing combined retrieved sequences
     all_seqs = list()
 
+    # Obtain total list of assemblies available
     genome_info = search_available()
     complete_count = 0
 
@@ -261,21 +268,27 @@ def main():
 
         accession = assembly.get('accession')
 
-        local_xml = xml_dir / Path(f"{accession}.xml")
+        local_xml    = xml_dir    / Path(f"{accession}.xml")
         local_genome = genome_dir / Path(f"{accession}.embl.gz")
 
+        # Download SRA assembly XML...
         download_assembly_xml(local_xml, accession)
+        # Check for completeness
         complete = is_complete(local_xml)
+
         if complete:
             complete_count += 1
-
-        if complete:
+            # Download EMBL formatted record
             download_assembly(accession, local_genome)
+            # Parse required gene/protein sequences
             gene_seqs = get_gene_sequences(local_genome)
+            # Add results to overall list
             all_seqs.append(gene_seqs)
-
+            
+    # Merge dicts into one giant dict...
     all_seqs = dict(ChainMap(*all_seqs))
 
+    #...and create the outputs
     write_outputs(all_seqs, output_dir)
 
     print(f'Complete genomes: {complete_count}')
