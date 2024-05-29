@@ -1,6 +1,7 @@
 #!/bin/env python
 
 import gzip
+import pandas as pd
 import re
 import requests
 
@@ -16,13 +17,12 @@ from tqdm import tqdm
 from pprint import pprint
 
 NCBI_TAXID     = '1423'
-REQUIRED_GENES = ['comP']
+REQUIRED_GENES = ['comP', 'walK', 'yycG', 'desK', 'yocF']
+ENA_URI="https://www.ebi.ac.uk/ena/"
 
 """
 Identifies all complete B.subtilis genomes available via ENA and downloads them
 """
-
-ENA_URI="https://www.ebi.ac.uk/ena/"
 
 def make_request(uri):
 
@@ -83,13 +83,18 @@ def download_assembly_xml(local_file, accession):
 def is_complete(local_file):
 
     """
-    Determines whether an assembly is intact or not
+    Determines whether an assembly is intact or not, based upon
+    <= 5 scaffolds (to allow for plasmids)
+    0 spanned gaps
+    0 unspanned gaps
+
+    Some assemblies are reporting 0 gaps when the are in hundreds of contigs...
     
     Required params: 
         local_file(pathlib.path) : Path to xml file
 
     Returns:
-        state(bool): True if assembly contains no gaps
+        state(bool): True if assembly is considered complete 
     """
 
     state = False
@@ -97,6 +102,7 @@ def is_complete(local_file):
     # set defaults which will not trigger detection if assembly attributes missing from record
     spanned_gaps = 1
     unspanned_gaps = 1
+    scaffold_count = False
 
     tree = etree.parse(local_file)
 
@@ -106,16 +112,24 @@ def is_complete(local_file):
     if error:
         print(f"{local_file} error status: {error[0].text}")
     else:
-        #  Gap info is stored within ASSEMBLY_ATTRIBUTES as follow:
+        #  Scaffold number and ghp info is stored within ASSEMBLY_ATTRIBUTES as follow:
+        #  <ASSEMBLY_ATTRIBUTE>
+        #    <TAG>scaffold-count</TAG>
+        #    <VALUE>1</VALUE>
+        #  </ASSEMBLY_ATTRIBUTE>
         #
         #  <ASSEMBLY_ATTRIBUTE>
-        #   <TAG>spanned-gaps</TAG>
-        #   <VALUE>0</VALUE>
+        #    <TAG>spanned-gaps</TAG>
+        #    <VALUE>0</VALUE>
         #  </ASSEMBLY_ATTRIBUTE>
         #  <ASSEMBLY_ATTRIBUTE>
         #    <TAG>unspanned-gaps</TAG>
         #    <VALUE>0</VALUE>
         #  </ASSEMBLY_ATTRIBUTE>
+
+        tags = tree.xpath(".//ASSEMBLY_ATTRIBUTE/TAG[contains(text(),'scaffold-count')]/following-sibling::VALUE")
+        if len(tags):
+            scaffold_count = tags[0].text
 
         tags = tree.xpath(".//ASSEMBLY_ATTRIBUTE/TAG[contains(text(),'spanned-gaps')]/following-sibling::VALUE")
         if len(tags):
@@ -125,8 +139,7 @@ def is_complete(local_file):
         if len(tags):
             unspanned_gaps = tags[0].text
 
-
-        if spanned_gaps == '0' and unspanned_gaps == '0':
+        if scaffold_count and int(scaffold_count) <= 5 and spanned_gaps == '0' and unspanned_gaps == '0':
             state = True
 
     return(state)
@@ -155,6 +168,79 @@ def download_assembly(accession, local_genome):
                 if chunk:
                     fh.write(chunk)
 
+def clean_description(description):
+    """
+    tidies up variously formatted descriptions into something reasonably consistent
+
+    Required params:
+        description(str): record description
+    
+    Returns:
+        description(str): cleaned description
+    """
+
+    description = re.sub(r'[, ]*complete genome[.]*', '', description)
+    description = re.sub(r'[, ]*genome assembly[,:_ A-Za-z0-9]*', '', description)
+    description = re.sub(r'chromosome[ ,]*', '', description)
+    description = re.sub('whole genome shotgun sequence.','', description)
+    description = re.sub(r'NODE[A-Za-z0-9_,]*', '', description)
+    description = re.sub(r'[ ,]*$','', description)
+
+    return(description)
+
+
+def fasta_convert(genome_dir, fasta_dir):
+    """
+    Converts all embl format records to fasta 
+
+    Required parameters:
+        genome_dir(Path): Path to genomes directory
+        fasta_dir(Path): Path to fasta directory
+
+    Returns:
+        summary(pd.DataFrame): Data frame containing metadata on assemblies
+    """
+
+    genomes = genome_dir.glob("*.gz")
+    metadata_list = list()
+
+    for genome in tqdm(genomes, desc = 'Reformat', leave = None):
+
+        metadata = dict()
+        records  = list()
+
+        accession  = genome.name.replace(".embl.gz","")
+        fasta_file = f"{accession}.fasta"
+        fasta_path = fasta_dir / Path(fasta_file)
+
+        with gzip.open(genome, 'rt') as embl_fh:
+            for record in SeqIO.parse(embl_fh, format = 'embl'):
+
+                if not metadata.get('accession'):
+
+                    metadata['accession'] = accession
+                    metadata['isolate'] = clean_description(record.description)
+
+                    for feature in record.features:
+                        if feature.type == 'source':
+
+                            source = feature.qualifiers.get('isolation_source')
+                            if source is not None:
+                                metadata['source'] = source[0]
+                            
+                records.append(record)
+
+        with open(fasta_path, 'w') as fasta_fh:
+            SeqIO.write(records, fasta_fh, format = 'fasta')
+
+        metadata['scaffolds'] = len(records)
+        metadata_list.append(metadata)
+
+    summary = pd.DataFrame(metadata_list)
+    summary.to_excel('summary.xlsx', sheet_name = 'Complete genomes', index = False, header = True)
+
+    return(summary)
+
 def get_gene_sequences(local_genome):
 
     """
@@ -174,6 +260,7 @@ def get_gene_sequences(local_genome):
     with gzip.open(local_genome, 'rt') as fh:
         for record in SeqIO.parse(fh, format = 'embl'):
             organism = record.annotations['organism']
+
             for feature in record.features:
 
                 # Handle genes by extracting subsequence from record
@@ -194,6 +281,7 @@ def get_gene_sequences(local_genome):
                 elif feature.type == 'CDS':
 
                     if 'gene' in feature.qualifiers.keys() and feature.qualifiers.get('gene')[0] in REQUIRED_GENES:
+
                         if 'translation' in feature.qualifiers.keys():
 
                             gene_id = feature.qualifiers.get('gene')[0]
@@ -251,10 +339,12 @@ def main():
     # Locations for storing various data types
     xml_dir    = Path(__file__).parents[1] / Path('xml')
     genome_dir = Path(__file__).parents[1] / Path('genomes')
+    fasta_dir  = Path(__file__).parents[1] / Path('fasta')
     output_dir = Path(__file__).parents[1] / Path('outputs')
 
     xml_dir.mkdir(exist_ok = True)
     genome_dir.mkdir(exist_ok = True)
+    fasta_dir.mkdir(exist_ok = True)
     output_dir.mkdir(exist_ok = True)
 
     # list for storing combined retrieved sequences
@@ -262,9 +352,8 @@ def main():
 
     # Obtain total list of assemblies available
     genome_info = search_available()
-    complete_count = 0
 
-    for assembly in tqdm(genome_info):
+    for assembly in tqdm(genome_info, desc = 'Download', leave = None):
 
         accession = assembly.get('accession')
 
@@ -277,21 +366,22 @@ def main():
         complete = is_complete(local_xml)
 
         if complete:
-            complete_count += 1
             # Download EMBL formatted record
             download_assembly(accession, local_genome)
             # Parse required gene/protein sequences
             gene_seqs = get_gene_sequences(local_genome)
             # Add results to overall list
             all_seqs.append(gene_seqs)
+
+    # Convert assemblies to fasta format, which also provides
+    # a summary pandas dataframe of the data
+    summary = fasta_convert(genome_dir, fasta_dir)
             
     # Merge dicts into one giant dict...
     all_seqs = dict(ChainMap(*all_seqs))
 
     #...and create the outputs
     write_outputs(all_seqs, output_dir)
-
-    print(f'Complete genomes: {complete_count}')
 
 if __name__ == "__main__":
     main()
