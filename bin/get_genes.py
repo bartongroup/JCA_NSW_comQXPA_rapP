@@ -269,7 +269,7 @@ def blast_index(fasta_dir):
         cmd = ["makeblastdb",  "-in",  fasta_file, "-dbtype", "nucl", "-taxid", NCBI_TAXID, "-title", accession]
         try:
             result = subprocess.run(cmd, check = True, capture_output = True)
-        except CalledProcessError as e:
+        except subprocess.CalledProcessError as e:
             print(f"Index failed: {accession}")
             print(result.stdout)
             print(result.stderr)
