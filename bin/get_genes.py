@@ -12,6 +12,7 @@ from collections import ChainMap
 from json import loads
 from lxml import etree
 from pathlib import Path
+import subprocess
 from tqdm import tqdm
 
 from pprint import pprint
@@ -152,21 +153,28 @@ def download_assembly(accession, local_genome):
     Required parameters:
         accession(str): Accession to retrieve
         local_genome(pathlib.Path): Path to store file locally
+    
+    Returns:
+        ok(bool): True on successful download
     """
+
+    ok = True
 
     if not local_genome.exists():
 
         uri = f"{ENA_URI}browser/api/embl/{accession}?download=true&gzip=true"
 
-        try:
-            response = requests.get(uri)
-        except Exception as e:
-            print(f'Error requesting {uri}: {e}')
+        response = requests.get(uri)
+        if response.status_code == "200":
+            with open(local_genome, 'wb') as fh:
+                for chunk in response.iter_content(chunk_size=1024):
+                    if chunk:
+                        fh.write(chunk)
+        else:
+            print(f"Error retrieving {accession}")
+            ok = False
 
-        with open(local_genome, 'wb') as fh:
-            for chunk in response.iter_content(chunk_size=1024):
-                if chunk:
-                    fh.write(chunk)
+    return(ok)
 
 def clean_description(description):
     """
@@ -227,7 +235,7 @@ def fasta_convert(genome_dir, fasta_dir):
                             source = feature.qualifiers.get('isolation_source')
                             if source is not None:
                                 metadata['source'] = source[0]
-                            
+                record.id = f"lcl|{record.id}"
                 records.append(record)
 
         with open(fasta_path, 'w') as fasta_fh:
@@ -241,10 +249,35 @@ def fasta_convert(genome_dir, fasta_dir):
 
     return(summary)
 
+def blast_index(fasta_dir):
+
+    """
+    Creates a blast index for each fasta file contained within directory
+
+    Required parameters:
+        fasta_dir(Path): Location of fasta files
+
+    Returns:
+        None
+    """
+
+    fasta_files = fasta_dir.glob('*.fasta')
+    for fasta_file in tqdm(fasta_files, desc = 'Blast index'):
+
+        accession = fasta_file.name.replace('.fasta','')
+
+        cmd = ["makeblastdb",  "-in",  fasta_file, "-dbtype", "nucl", "-taxid", NCBI_TAXID, "-title", accession]
+        try:
+            result = subprocess.run(cmd, check = True, capture_output = True)
+        except CalledProcessError as e:
+            print(f"Index failed: {accession}")
+            print(result.stdout)
+            print(result.stderr)
+
 def get_gene_sequences(local_genome):
 
     """
-    Parses the downloaded genome record to extract the comP and xxxxx[TODO: TBD] sequences
+    Parses the downloaded genome record to extract the required sequences
 
     required parameters:
         local_genome(libpath.Path): Path to local copy of record
@@ -367,15 +400,17 @@ def main():
 
         if complete:
             # Download EMBL formatted record
-            download_assembly(accession, local_genome)
-            # Parse required gene/protein sequences
-            gene_seqs = get_gene_sequences(local_genome)
-            # Add results to overall list
-            all_seqs.append(gene_seqs)
+            ok = download_assembly(accession, local_genome)
+            if ok:
+                # Parse required gene/protein sequences
+                gene_seqs = get_gene_sequences(local_genome)
+                # Add results to overall list
+                all_seqs.append(gene_seqs)
 
     # Convert assemblies to fasta format, which also provides
     # a summary pandas dataframe of the data
     summary = fasta_convert(genome_dir, fasta_dir)
+    blast_index(fasta_dir)
             
     # Merge dicts into one giant dict...
     all_seqs = dict(ChainMap(*all_seqs))
