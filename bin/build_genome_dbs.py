@@ -197,13 +197,14 @@ def download_assembly(accession, local_genome):
         uri = f"{ENA_URI}browser/api/embl/{accession}?download=true&gzip=true"
 
         response = requests.get(uri)
-        if response.status_code == "200":
+        if len(response.content) > 20:
             with open(local_genome, 'wb') as fh:
                 for chunk in response.iter_content(chunk_size=1024):
                     if chunk:
                         fh.write(chunk)
         else:
             print(f"Error retrieving {accession}")
+            print(response)
             ok = False
 
     return(ok)
