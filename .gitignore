@@ -2,4 +2,5 @@ xml
 genomes
 outputs
 fasta
-summary.xlsx
+blast_db
+*.xlsx

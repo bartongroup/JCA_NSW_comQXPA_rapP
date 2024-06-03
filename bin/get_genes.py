@@ -2,13 +2,15 @@
 
 import gzip
 import pandas as pd
+import sys
 import re
 import requests
 
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
-from collections import ChainMap
+#from collections import ChainMap
+from datetime import datetime
 from json import loads
 from lxml import etree
 from pathlib import Path
@@ -80,6 +82,36 @@ def download_assembly_xml(local_file, accession):
         result = make_request(uri)
         with open(local_file, 'w') as fh:
             fh.writelines(result)
+
+def get_taxa_name():
+
+    """
+    Looks up taxa via ENA browser API to retrieve scientific name
+
+    Required parameters:
+        None
+
+    Returns:
+        species_name(str): parsed scientific name
+    """
+
+    uri = f"{ENA_URI}browser/api/xml/taxon:{NCBI_TAXID}"
+    result = make_request(uri)
+
+    # lxml does not support embedded encodings...
+    result = result.replace(' encoding="UTF-8"', '')
+    root = etree.fromstring(result)
+
+    error = root.xpath("/ErrorDetails/status")
+    if error:
+        print(f"Error obtaining taxonomy lookup")
+        print(root)
+        sys.exit(1)
+
+    taxon = root.xpath("/TAXON_SET/taxon")[0]
+    species_name = taxon.get('scientificName')
+
+    return(species_name)
 
 def is_complete(local_file):
 
@@ -177,6 +209,7 @@ def download_assembly(accession, local_genome):
     return(ok)
 
 def clean_description(description):
+
     """
     tidies up variously formatted descriptions into something reasonably consistent
 
@@ -197,16 +230,18 @@ def clean_description(description):
     return(description)
 
 
-def fasta_convert(genome_dir, fasta_dir):
+def fasta_convert(genome_dir, fasta_dir, species_name):
+
     """
     Converts all embl format records to fasta 
 
     Required parameters:
         genome_dir(Path): Path to genomes directory
         fasta_dir(Path): Path to fasta directory
+        species_name(str): Name of species
 
     Returns:
-        summary(pd.DataFrame): Data frame containing metadata on assemblies
+        None
     """
 
     genomes = genome_dir.glob("*.gz")
@@ -235,6 +270,7 @@ def fasta_convert(genome_dir, fasta_dir):
                             source = feature.qualifiers.get('isolation_source')
                             if source is not None:
                                 metadata['source'] = source[0]
+                            
                 record.id = f"lcl|{record.id}"
                 records.append(record)
 
@@ -245,34 +281,59 @@ def fasta_convert(genome_dir, fasta_dir):
         metadata_list.append(metadata)
 
     summary = pd.DataFrame(metadata_list)
-    summary.to_excel('summary.xlsx', sheet_name = 'Complete genomes', index = False, header = True)
+    date = datetime.today().strftime('%d-%m-%Y')
+    outfile = f"{species_name.replace(' ','_')}_complete_genomes_{date}.xlsx"
+    summary.to_excel(outfile, sheet_name = 'Complete genomes', index = False, header = True)
 
     return(summary)
 
-def blast_index(fasta_dir):
+def blast_index(fasta_dir, blast_dir, species):
 
     """
     Creates a blast index for each fasta file contained within directory
 
     Required parameters:
         fasta_dir(Path): Location of fasta files
+        blast_dir(Path): Location of blast database
 
     Returns:
         None
     """
 
+    accessions = list()
+    db_stats = {'count': 0, 'length': 0}
+    
     fasta_files = fasta_dir.glob('*.fasta')
     for fasta_file in tqdm(fasta_files, desc = 'Blast index'):
+        with open(fasta_file, 'r') as fh:
+            records = SeqIO.parse(fh, format = 'fasta')
+            for record in records:
+                db_stats['count'] += 1
+                db_stats['length'] += len(record.seq)
 
         accession = fasta_file.name.replace('.fasta','')
+        accessions.append(accession)
 
-        cmd = ["makeblastdb",  "-in",  fasta_file, "-dbtype", "nucl", "-taxid", NCBI_TAXID, "-title", accession]
+        cmd = ["makeblastdb",  "-in",  fasta_file, "-dbtype", "nucl", "-out", blast_dir / Path(accession),
+               "-taxid", NCBI_TAXID, "-title", accession]
         try:
             result = subprocess.run(cmd, check = True, capture_output = True)
         except subprocess.CalledProcessError as e:
             print(f"Index failed: {accession}")
             print(result.stdout)
             print(result.stderr)
+    
+    accessions = ' '.join([f"{a}" for a in accessions])
+
+    index = f'''\
+TITLE {species} complete genomes
+DBLIST {accessions}
+NSEQ {db_stats['count']}
+LENGTH {db_stats['length']}
+'''.strip()
+
+    with open(f'{blast_dir}/{species.replace(' ','_')}_complete_genomes.nal', 'w') as fh:
+        fh.writelines(index)
 
 def get_gene_sequences(local_genome):
 
@@ -369,15 +430,19 @@ def write_outputs(all_seqs, output_dir):
 
 def main():
 
+    species_name = get_taxa_name()
+
     # Locations for storing various data types
     xml_dir    = Path(__file__).parents[1] / Path('xml')
     genome_dir = Path(__file__).parents[1] / Path('genomes')
     fasta_dir  = Path(__file__).parents[1] / Path('fasta')
+    blast_dir  = Path(__file__).parents[1] / Path('blast_db')
     output_dir = Path(__file__).parents[1] / Path('outputs')
 
     xml_dir.mkdir(exist_ok = True)
     genome_dir.mkdir(exist_ok = True)
     fasta_dir.mkdir(exist_ok = True)
+    blast_dir.mkdir(exist_ok = True)
     output_dir.mkdir(exist_ok = True)
 
     # list for storing combined retrieved sequences
@@ -409,14 +474,18 @@ def main():
 
     # Convert assemblies to fasta format, which also provides
     # a summary pandas dataframe of the data
-    summary = fasta_convert(genome_dir, fasta_dir)
-    blast_index(fasta_dir)
+    fasta_convert(genome_dir, fasta_dir, species_name)
+    blast_index(fasta_dir, blast_dir, species_name)
+
+    # Due to inconsistent naming conventions this was not successfully identifying
+    # all copies of genes, so is commented out, but the code remains in case it serves
+    # a purpose at a later date
             
     # Merge dicts into one giant dict...
-    all_seqs = dict(ChainMap(*all_seqs))
+    #all_seqs = dict(ChainMap(*all_seqs))
 
     #...and create the outputs
-    write_outputs(all_seqs, output_dir)
+    #write_outputs(all_seqs, output_dir)
 
 if __name__ == "__main__":
     main()
