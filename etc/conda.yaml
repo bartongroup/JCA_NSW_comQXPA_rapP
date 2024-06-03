@@ -1,4 +1,4 @@
-name: comP
+name: genome_dbs
 channels:
   - bioconda
   - nvidia
