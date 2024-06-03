@@ -29,3 +29,9 @@ Once the taxonomy identifier is set, simply run
 `bin/build_genome_dbs.py` - it will probably take about half an hour for ~400 genomes.
 
 Note some 404 errors (not found) are likely to be reported during the genome download phase - these will most likely result from assemblies which have metadata available but no completed submission.
+
+### Shell modifications
+
+Searching the resulting blast database will require a larger number of files to be opened simultaneously then permitted by the default shell environment.
+
+Run `ulimit -n 4096` to increase this limit from the default of 1024 prior to running a search. This can also be included in a bash script prior to a blast command.
