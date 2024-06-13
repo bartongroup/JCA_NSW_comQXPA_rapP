@@ -3,4 +3,5 @@ genomes
 outputs
 fasta
 blast_db
+Danish_sequences
 *.xlsx
