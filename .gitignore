@@ -4,3 +4,5 @@ outputs
 fasta
 blast_db
 *.xlsx
+Danish_sequences
+*/__pycache__
