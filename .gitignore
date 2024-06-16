@@ -6,3 +6,10 @@ blast_db
 *.xlsx
 Danish_sequences
 */__pycache__
+.snakemake
+logs
+db
+annotations
+busco
+busco_data
+busco_downloads
