@@ -12,7 +12,7 @@ The corresponding SRA XML files are then downloaded, and parsed. Intact genomes 
 
 EMBL format gzip compressed records for the assemblies are downloaded into a 'genomes' directory, converted to fasta format ('fasta' directory), and blast indexed ('blast_db' directory). A summary spreadsheet of the downloaded genomes is also written to the project root.
 
-## Usage
+## Building genome databases 
 
 A conda environment (named `genome_dbs`) containing all necessary pre-requisites can be created by running:
 
@@ -35,3 +35,19 @@ Note some 404 errors (not found) are likely to be reported during the genome dow
 Searching the resulting blast database will require a larger number of files to be opened simultaneously then permitted by the default shell environment.
 
 Run `ulimit -n 4096` to increase this limit from the default of 1024 prior to running a search. This can also be included in a bash script prior to a blast command.
+
+## Substituting improved genomes
+
+Improved versions of some genomes have been made available, include a small number of additional sequences. This uses the excel spreadsheet produced when building the genome database, and identifies which genomes have improved sequences, removes the old versions and replaces them with the new ones. Any additional sequences are also added at this point.
+
+## Reannotation
+
+To provide consistent annotations, a snakemake workflow enables running bakta annotations on every fasta genome, followed by BUSCO completeness checks. This just requires the `bin/run_workflow.sh` script - the workflow will take care of creating conda environments for each tool and downloading the necessary databases prior to running the analysis. It expects the fasta files to be found in a `fasta` directory as created by `build_genome_dbs.py`, and creates it's outputs in a directies named `annotations` and `busco`.  
+
+The `workflow/Snakefile` sets a `busco_lineage` variable at the top of the file which will require updating if applied to a non-Bacilliacae species.
+
+## Complete genome selection
+
+Genomes which are considered 'complete' based upon a BUSCO completeness score >98% are identified using the `bin/select_complete.py` script. This simply parses the json BUSCO outputs to identify those which have >98% completion, and creates copies in a `complete` subdirectory, including embl-formatted genomes, fasta files and blast databases.
+
+The completeness threshold is defined by the `THRESHOLD` constand at the top of the script, while the NCBI taxonomy identifier used is similarly defined within the NCBI_TAX_ID constant. 
