@@ -11,7 +11,7 @@ from json import load
 from pathlib import Path
 from shutil import copy
 from tqdm import tqdm
-from build_genome_dbs import blast_index, get_taxa_name
+from common import blast_index, get_taxa_name
 
 def check_completeness():
 
