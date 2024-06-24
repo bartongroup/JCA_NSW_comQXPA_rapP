@@ -1,20 +1,53 @@
 '''
 Functions reused in multiple scripts live here...
 '''
+from tqdm import tqdm
+from Bio import SeqIO
+from lxml import etree
+from pathlib import Path
+import requests
+import subprocess
+import sys
+import re
 
-def get_taxa_name():
+NCBI_TAXID = '1423'
+
+"""
+Identifies all complete B.subtilis genomes available via ENA and downloads them
+"""
+
+def make_request(uri):
+
+    """
+    Makes HTTP request and returns result body
+
+    Required params:
+        uri(str): URI for request
+
+    Returns:
+        text of response
+    """
+    try:
+        r = requests.get(uri)
+    except Exception as e:
+        print(f'Error requesting {uri}: {e}')
+
+    return(r.text)
+
+
+def get_taxa_name(ncbi_taxid):
 
     """
     Looks up taxa via ENA browser API to retrieve scientific name
 
     Required parameters:
-        None
+        ncbi_taxid(str): Taxonomy identifier of species
 
     Returns:
         species_name(str): parsed scientific name
     """
 
-    uri = f"{ENA_URI}browser/api/xml/taxon:{NCBI_TAXID}"
+    uri = f"https://www.ebi.ac.uk/ena/browser/api/xml/taxon:{ncbi_taxid}"
     result = make_request(uri)
 
     # lxml does not support embedded encodings...
@@ -80,57 +113,23 @@ LENGTH {db_stats['length']}
     with open(f'{blast_dir}/{species.replace(' ','_')}_complete_genomes.nal', 'w') as fh:
         fh.writelines(index)
 
-def get_gene_sequences(local_genome):
+def clean_description(description):
 
     """
-    Parses the downloaded genome record to extract the required sequences
+    tidies up variously formatted descriptions into something reasonably consistent
 
-    required parameters:
-        local_genome(libpath.Path): Path to local copy of record
-
-    returns:
-        gene_seqs(dict): dictionary containing gene and amino acid sequences 
-                         as BioSeq objects, keyed on seq ID
+    Required params:
+        description(str): record description
+    
+    Returns:
+        description(str): cleaned description
     """
 
-    gene_seqs = dict()
-    accession = str(local_genome.stem).replace('.embl','')
+    description = re.sub(r'[, ]*complete genome[.]*', '', description)
+    description = re.sub(r'[, ]*genome assembly[,:_ A-Za-z0-9]*', '', description)
+    description = re.sub(r'chromosome[ ,]*', '', description)
+    description = re.sub('whole genome shotgun sequence.','', description)
+    description = re.sub(r'NODE[A-Za-z0-9_,]*', '', description)
+    description = re.sub(r'[ ,]*$','', description)
 
-    with gzip.open(local_genome, 'rt') as fh:
-        for record in SeqIO.parse(fh, format = 'embl'):
-            organism = record.annotations['organism']
-
-            for feature in record.features:
-
-                # Handle genes by extracting subsequence from record
-                if feature.type == 'gene':
-                    if 'gene' in feature.qualifiers.keys() and feature.qualifiers.get('gene')[0] in REQUIRED_GENES:
-
-                        gene = feature.extract(record)
-                        gene_id = feature.qualifiers.get('gene')[0]
-
-                        id = f'{accession}_{gene_id}_gene'
-
-                        gene.id = id
-                        gene.description = f"{organism} {gene_id} gene"
-
-                        gene_seqs[id] = gene
-
-                # CDS feature contain the protein sequence as a 'translation' qualifier
-                elif feature.type == 'CDS':
-
-                    if 'gene' in feature.qualifiers.keys() and feature.qualifiers.get('gene')[0] in REQUIRED_GENES:
-
-                        if 'translation' in feature.qualifiers.keys():
-
-                            gene_id = feature.qualifiers.get('gene')[0]
-                            prot_seq = feature.qualifiers.get('translation')[0]
-                            id = f'{accession}_{gene_id}_protein'
-
-                            protein = SeqRecord(Seq(prot_seq), 
-                                                id = id, 
-                                                description = f"{organism} {gene_id} protein")
-
-                            gene_seqs[id] = protein
-
-    return(gene_seqs)
+    return(description)

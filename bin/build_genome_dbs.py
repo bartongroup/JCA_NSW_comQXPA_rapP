@@ -2,50 +2,22 @@
 
 import gzip
 import pandas as pd
-import sys
 import re
 import requests
 
 from Bio import SeqIO
-from Bio.Seq import Seq
-from Bio.SeqRecord import SeqRecord
-#from collections import ChainMap
 from datetime import datetime
 from json import loads
 from lxml import etree
-from pathlib import Path
-import subprocess
 from tqdm import tqdm
+from pathlib import Path
 
 from pprint import pprint
 
-from common import blast_index, get_taxa_name
+from common import blast_index, get_taxa_name, clean_description, make_request
 
-NCBI_TAXID     = '1423'
-REQUIRED_GENES = ['comP', 'walK', 'yycG', 'desK', 'yocF']
-ENA_URI="https://www.ebi.ac.uk/ena/"
-
-"""
-Identifies all complete B.subtilis genomes available via ENA and downloads them
-"""
-
-def make_request(uri):
-
-    """
-    Makes HTTP request and returns result body
-
-    Required params:
-        uri(str): URI for request
-
-    Returns:
-        text of response
-    """
-    try:
-        r = requests.get(uri)
-    except Exception as e:
-        print(f'Error requesting {uri}: {e}')
-    
-    return(r.text)
+NCBI_TAXID = '1423'
+ENA_URI = "https://www.ebi.ac.uk/ena/"
 
 def search_available():
     
@@ -169,37 +141,17 @@ def download_assembly(accession, local_genome):
         uri = f"{ENA_URI}browser/api/embl/{accession}?download=true&gzip=true"
 
         response = requests.get(uri)
-        if response.status_code == "200":
+        if response.status_code == 200:
             with open(local_genome, 'wb') as fh:
                 for chunk in response.iter_content(chunk_size=1024):
                     if chunk:
                         fh.write(chunk)
         else:
             print(f"Error retrieving {accession}")
+            print(response.status_code)
             ok = False
 
     return(ok)
-
-def clean_description(description):
-
-    """
-    tidies up variously formatted descriptions into something reasonably consistent
-
-    Required params:
-        description(str): record description
-    
-    Returns:
-        description(str): cleaned description
-    """
-
-    description = re.sub(r'[, ]*complete genome[.]*', '', description)
-    description = re.sub(r'[, ]*genome assembly[,:_ A-Za-z0-9]*', '', description)
-    description = re.sub(r'chromosome[ ,]*', '', description)
-    description = re.sub('whole genome shotgun sequence.','', description)
-    description = re.sub(r'NODE[A-Za-z0-9_,]*', '', description)
-    description = re.sub(r'[ ,]*$','', description)
-
-    return(description)
 
 
 def fasta_convert(genome_dir, fasta_dir, species_name):
@@ -246,60 +198,26 @@ def fasta_convert(genome_dir, fasta_dir, species_name):
                 record.id = f"lcl|{record.id}"
                 records.append(record)
 
-        with open(fasta_path, 'w') as fasta_fh:
-            SeqIO.write(records, fasta_fh, format = 'fasta')
+        if len(records): # for empty embl records
+            with open(fasta_path, 'w') as fasta_fh:
+                SeqIO.write(records, fasta_fh, format = 'fasta')
 
-        metadata['scaffolds'] = len(records)
-        metadata_list.append(metadata)
+            metadata['scaffolds'] = len(records)
+            metadata_list.append(metadata)
 
     summary = pd.DataFrame(metadata_list)
     date = datetime.today().strftime('%d-%m-%Y')
     outfile = f"{species_name.replace(' ','_')}_complete_genomes_{date}.xlsx"
+    summary = summary[summary.scaffolds != 0]
     summary.to_excel(outfile, sheet_name = 'Complete genomes', index = False, header = True)
+    summary.drop(['source', 'scaffolds'], inplace = True, axis = 1)
+    summary.to_csv('strains.txt', sep="\t", header = True, index = False)
 
     return(summary)
 
-def write_outputs(all_seqs, output_dir):
-
-    """
-    Writes fasta formatted records for each gene/protein
-
-    Required params:
-        all_seqs(dict): dicts combing results returned from get_gene_sequences()
-        output_dir(pathlib.Path): Location to write results
-
-    Returns:
-        None
-    """
-
-    separated_seqs = dict()
-
-    for gene in REQUIRED_GENES:
-        for seq_id in all_seqs.keys():
-            record = all_seqs[seq_id]
-
-            if gene in seq_id:
-
-                match = re.search(r'_(gene|protein)$', seq_id)
-                if match:
-                    seq_type = match.group(1)
-                else:
-                    raise Exception (f'Failed to match sequence type: {seq_id}')
-
-                record.id = seq_id.replace(f"_{gene}_{seq_type}", "")
-                if f"{gene}_{seq_type}" in separated_seqs:
-                    separated_seqs[f"{gene}_{seq_type}"].append(record)
-                else:
-                    separated_seqs[f"{gene}_{seq_type}"] = [record]
-
-    for key in separated_seqs.keys():
-        gene,seq_type = key.split('_')
-        with open(f'outputs/{gene}.{seq_type}.fa', 'w') as fh:
-            SeqIO.write(separated_seqs[key], fh, 'fasta')
-
 def main():
 
-    species_name = get_taxa_name()
+    species_name = get_taxa_name(NCBI_TAXID)
 
     # Locations for storing various data types
     xml_dir    = Path(__file__).parents[1] / Path('xml')
@@ -335,26 +253,16 @@ def main():
         if complete:
             # Download EMBL formatted record
             ok = download_assembly(accession, local_genome)
-            if ok:
+            #if ok:
                 # Parse required gene/protein sequences
-                gene_seqs = get_gene_sequences(local_genome)
-                # Add results to overall list
-                all_seqs.append(gene_seqs)
+            #    gene_seqs = get_gene_sequences(local_genome)
+            #    # Add results to overall list
+            #    all_seqs.append(gene_seqs)
 
     # Convert assemblies to fasta format, which also provides
     # a summary pandas dataframe of the data
     fasta_convert(genome_dir, fasta_dir, species_name)
     blast_index(fasta_dir, blast_dir, species_name)
-
-    # Due to inconsistent naming conventions this was not successfully identifying
-    # all copies of genes, so is commented out, but the code remains in case it serves
-    # a purpose at a later date
-            
-    # Merge dicts into one giant dict...
-    #all_seqs = dict(ChainMap(*all_seqs))
-
-    #...and create the outputs
-    #write_outputs(all_seqs, output_dir)
 
 if __name__ == "__main__":
     main()

@@ -85,7 +85,7 @@ def create_good_set(species_name, retain):
 
 def main():
 
-    species_name = get_taxa_name()
+    species_name = get_taxa_name(NCBI_TAXID)
 
     retain = check_completeness()
     create_good_set(species_name, retain)
