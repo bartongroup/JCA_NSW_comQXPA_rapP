@@ -1,9 +1,6 @@
 from pathlib import Path
 import pandas as pd
 import re
-from pprint import pprint
-
-include: "rules/common.snmk"
 
 busco_lineage = 'bacillales_odb10'
 cwd = Path('.').resolve()
@@ -11,7 +8,6 @@ excel_files = list(cwd.glob('*.xlsx'))
 genome_df = pd.read_excel(excel_files[0])
 genome_df = genome_df[['accession', 'isolate']]
 
-genome_df['isolate'] = genome_df.apply(lambda x: clean_strain(x['isolate']), axis = 1)
 genome_info = genome_df.set_index('accession').to_dict()
 
 GENOMES = Path('fasta').glob('*')

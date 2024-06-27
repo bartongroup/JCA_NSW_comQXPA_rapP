@@ -63,8 +63,8 @@ def create_good_set(species_name, retain):
     annotated_genomes = Path('annotations')
     original_fastas = Path('fasta')
     complete_genomes = Path('complete/genomes')
-    complete_fasta = Path('complete/fasta')
-    complete_blast = Path('complete/blast')
+    complete_fasta = Path('complete/fasta/genomes')
+    complete_blast = Path('complete/blast/genomes')
 
     complete_genomes.mkdir(exist_ok = True, parents = True)
     complete_fasta.mkdir(exist_ok = True, parents = True)

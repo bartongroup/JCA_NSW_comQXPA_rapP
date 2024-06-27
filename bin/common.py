@@ -133,3 +133,22 @@ def clean_description(description):
     description = re.sub(r'[ ,]*$','', description)
 
     return(description)
+
+def clean_strain(strain):
+
+    """
+    tidies up variously formatted strain names into something reasonably consistent
+
+    Required params:
+        strain(str): strain name
+    
+    Returns:
+        strain(str): cleaned strain name
+    """
+
+    strain = re.sub(r'[, ]*(Mutant )?Bacillus subtilis (strain|isolate) [.]*', '', strain)
+    strain = re.sub(r'[, ]*(Mutant )?Bacillus subtilis [.]*', '', strain)
+    strain = re.sub(r' (strain|isolate)', '', strain)
+    #strain = strain.replace(' ', '_')
+
+    return(strain)

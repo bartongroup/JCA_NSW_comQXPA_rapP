@@ -14,7 +14,7 @@ from pathlib import Path
 
 from pprint import pprint
 
-from common import blast_index, get_taxa_name, clean_description, make_request
+from common import blast_index, get_taxa_name, clean_description, clean_strain, make_request
 
 NCBI_TAXID = '1423'
 ENA_URI = "https://www.ebi.ac.uk/ena/"
@@ -187,6 +187,7 @@ def fasta_convert(genome_dir, fasta_dir, species_name):
 
                     metadata['accession'] = accession
                     metadata['isolate'] = clean_description(record.description)
+                    metadata['clean_strain'] = clean_strain(metadata['isolate'])
 
                     for feature in record.features:
                         if feature.type == 'source':
@@ -210,7 +211,7 @@ def fasta_convert(genome_dir, fasta_dir, species_name):
     outfile = f"{species_name.replace(' ','_')}_complete_genomes_{date}.xlsx"
     summary = summary[summary.scaffolds != 0]
     summary.to_excel(outfile, sheet_name = 'Complete genomes', index = False, header = True)
-    summary.drop(['source', 'scaffolds'], inplace = True, axis = 1)
+    summary.drop(['source', 'scaffolds', 'clean_strain'], inplace = True, axis = 1)
     summary.to_csv('strains.txt', sep="\t", header = True, index = False)
 
     return(summary)

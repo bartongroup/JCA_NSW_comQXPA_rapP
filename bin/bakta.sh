@@ -30,14 +30,18 @@ while getopts "n:g:s:o:h" opt; do
     esac
 done
 
-if [[ -z "${GENOME}" ]] | [[ -z "${GENUS}" ]] | [[ -z "${SPECIES}" ]] | [[ -z "${OUTDIR}" ]]; then
+if [[ -z "${GENOME}" ]] | [[ -z "${GENUS}" ]] | [[ -z "${SPECIES}" ]] | [[ -z "${OUTDIR}" ]] ; then
     echo ${USAGE}
     exit 1
 fi
 
+STRAIN=$(grep ${GENOME} strains.txt|cut -f 3|head -1)
+echo GENOME=${GENOME}
+echo STRAIN=${STRAIN}
+
 cp -v fasta/${GENOME}.fasta ${TMPDIR}
 
-bakta --db db --prefix ${GENOME} --genus ${GENUS} --species ${SPECIES} --compliant \
+bakta --db db --prefix ${GENOME} --genus ${GENUS} --species ${SPECIES} --strain "${STRAIN}" --compliant \
   --threads 8 --output ${TMPDIR}/bakta ${TMPDIR}/${GENOME}.fasta
 
 cp -v ${TMPDIR}/bakta/* ${OUTDIR}
