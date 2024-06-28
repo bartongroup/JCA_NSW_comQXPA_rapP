@@ -1,0 +1,296 @@
+#!/bin/env python
+
+'''
+Extracts genes of interest from reannotated genomes
+
+Script specific to comP - not intended to be generic
+'''
+
+import pandas as pd
+import subprocess
+
+from Bio import SeqIO
+from Bio.SeqRecord import SeqRecord
+from Bio.Seq import Seq
+from pathlib import Path
+from tqdm import tqdm
+
+NCBI_TAXID = '1423'
+
+def get_qualifier(name, feature):
+    
+    """
+    Extracts a qualifier value from a feature for a given name
+
+    Required params:
+        name(str): qualifier name
+        feature(Bio::SeqFeature): feature of interest
+    """
+
+    if feature.qualifiers.get(name):
+        return(feature.qualifiers.get(name)[0])
+    else:
+        return(None)
+
+
+def extract_feature_details(feature):
+
+    """
+    Pulls required fields from feature object
+
+    Required parameters: 
+        feature(Bio::SeqFeature): feature of interest
+    
+    returns:
+        feature_info(dict): Dictionary containing required fields
+    """
+
+    feature_info = {
+        'location':    f"{feature.location.start}-{feature.location.end}",
+    }
+
+    translation = get_qualifier('translation', feature)
+    feature_info['translation'] = translation
+    if translation is not None:
+        feature_info['cds_length'] = len(translation)
+
+    feature_info['gene_id'] = get_qualifier('gene', feature)
+    feature_info['product'] = get_qualifier('product', feature)
+
+    feature_info['pseudogene'] = get_qualifier('pseudogene', feature)
+    
+    if feature.qualifiers.get('note') and feature_info['pseudogene']:
+        feature_info['note'] = feature.qualifiers.get('note')[-1]
+    else:
+        feature_info['note'] = None
+
+    return(feature_info)
+
+def get_gene_sequences(strain_info, genome):
+
+    """
+    Parses the downloaded genome record to extract the required sequences
+
+    required parameters:
+        strain_info(pd.DataFrame): DataFrame mapping accessions to strain info
+        genome(libpath.Path): Path to record
+
+    returns:
+        accession(str): accession of record
+        gene_info(dict): metadata dictionary keyed on gene name
+        cds_seqs(dict): dict of Bio::Seq objects keyed on gene name
+    """
+
+    gene_info = dict()
+    cds_seqs = dict()
+    prot_seqs = dict()
+
+    accession = str(genome.stem).replace('.embl','')
+
+    with open(genome, 'r') as fh:
+        for record in SeqIO.parse(fh, format = 'embl'):
+
+            ''' 
+            comP and comQ are not reliably annotated, however comX is present in 
+            every annotation so use this to identify the location of the operon 
+            '''
+
+            for index, feature in enumerate(record.features):
+
+                if feature.type == 'gene':
+
+                    if 'gene' in feature.qualifiers.keys() and 'comX' in feature.qualifiers.get('gene')[0]:
+
+                        comX_gene_index = index
+                        cds_indices = dict()
+                        '''
+                        The operon is generally on the -ve strand, but there are
+                        some cases where it is positive
+                        
+                        Since we have consistent annotation formats, we should
+                        be able to rely on the surrounding features being the
+                        comX CDS, and the comP and comQ genes and CDSs
+                        '''
+
+                        if feature.location.strand== -1:
+
+                            gene_info['strand']='+'
+                            cds_indices['comX'] = comX_gene_index + 1
+                            cds_indices['comP'] = comX_gene_index - 1 
+                            cds_indices['comQ'] = comX_gene_index + 3
+
+                        else:
+
+                            gene_info['strand']='-'
+                            cds_indices['comX'] = comX_gene_index + 1
+                            cds_indices['comP'] = comX_gene_index + 3 
+                            cds_indices['comQ'] = comX_gene_index - 1
+
+                        for index in cds_indices.keys():
+
+                            cds_info = extract_feature_details(record.features[cds_indices[index]])
+
+                            id = f'{accession}_{cds_info.get("gene_id")}'
+                            name = strain_info.loc[strain_info['accession']==accession,'isolate'].values[0]
+                            
+                            # Seem to have issues with getting appropriate translations here...
+                            # My need to revisit...
+                            # location = cds_info.get("location")
+                            # start,end = location.split('-')
+                            # start = start.replace('>','').replace('<','')
+                            # end = end.replace('>','').replace('<','')
+
+                            # cds_seq = record.seq[int(start)+3:int(end)]
+                            # if gene_info['strand'] == '-':
+                            #     cds_seq = cds_seq.reverse_complement()
+
+                            # cds = SeqRecord(
+                            #         Seq(cds_seq),
+                            #         id = id,
+                            #         description = f"{name} {cds_info.get('product')}",
+                            #         annotations={'molecule_type': "dna"}
+                            #     )
+                            # cds_seqs[index] = cds
+
+                            if cds_info.get('translation'):
+
+                                protein = SeqRecord(
+                                    Seq(cds_info['translation']), 
+                                        id = id, 
+                                        description = f"{name} {cds_info.get('product')}",
+                                        annotations={'molecule_type': "protein"}
+                                )
+                                prot_seqs[index] = protein
+                            gene_info[index] = cds_info
+
+    return(accession, gene_info, cds_seqs, prot_seqs)
+
+def write_seqs(seqs, db_path ):
+
+    """
+    Writes fasta files of collected sequences
+
+    Provided data is expected to be a dictionary keyed on accession, with values
+    being a further dictionary keyed on gene name, with values being Bio.Seq
+    objects
+
+    Filenames and suffixes will be determined automatically 
+
+    Required parameters:
+        seqs(dict): Dictionary as described above
+        db_path(pathlib.Path): Path to directory to write sequences
+    """
+
+    db_path.mkdir(exist_ok = True)
+
+    suffix = '.faa'
+
+    # reorganise list of dicts into a dict of lists...
+    seq_lists = {}
+    for dic in seqs:
+        for key in dic:
+            if key in seq_lists.keys():
+                seq_lists[key].append(dic[key])
+            else:
+                seq_lists[key] = [dic[key]]
+
+    for gene in seq_lists.keys():
+        outfile = db_path / f"{gene}{suffix}"
+        with open(outfile, 'w') as fh:
+            SeqIO.write(seq_lists[gene], fh, 'fasta')
+
+def blast_index(fasta_dir, blast_dir):
+
+    """
+    Creates a blast index for each fasta file contained within directory
+
+    Required parameters:
+        fasta_dir(Path): Location of fasta files
+        blast_dir(Path): Location of blast database
+
+    Returns:
+        None
+    """
+
+    blast_dir.mkdir(exist_ok = True)
+
+    fasta_files = fasta_dir.glob('*.faa')
+    for fasta_file in tqdm(fasta_files, desc = 'Blast index'):
+        gene = fasta_file.stem
+
+        cmd = ["makeblastdb",  "-in",  fasta_file, "-dbtype", "prot", "-out", blast_dir / Path(gene),
+               "-taxid", NCBI_TAXID, "-title", gene]
+        try:
+            result = subprocess.run(cmd, check = True, capture_output = True)
+        except subprocess.CalledProcessError as e:
+            print(f"Index failed: {gene}")
+            print(result.stdout)
+            print(result.stderr)
+
+def summarise_genes(strain_info, gene_info):
+
+    """
+    Produces summary spreadsheet on identified genes
+
+    Required parameters:
+        strain_info(pd.DataFrame): Mapping of accession to strain names
+        gene_info(dict): dictionary keyed on accession
+    
+    returns:
+        None
+    """
+
+    # reorganise list of dicts into a dict of lists...
+    seq_lists = dict()
+
+    for acc in gene_info.keys():
+
+            for key in gene_info[acc].keys():
+
+                    if key == 'strand':
+                        strand = gene_info[acc][key]
+                    else:
+                        dat = gene_info[acc][key]
+                        dat['accession'] = acc
+                        dat['strand'] = strand
+                        dat['strain'] = strain_info.loc[strain_info['accession']==acc,'isolate'].values[0]
+
+                        if key in seq_lists.keys():
+                            seq_lists[key].append(gene_info[acc][key])
+                        else:
+                            seq_lists[key] = [gene_info[acc][key]]
+
+    dfs = dict()
+    for gene in seq_lists.keys():
+        df = pd.DataFrame(seq_lists[gene])
+        df = df[['accession','strain','gene_id','cds_length','product','strand','location','pseudogene','note']]
+        dfs[gene] = df
+
+    with pd.ExcelWriter('complete/gene_summary.xlsx') as writer:
+        for gene in dfs.keys():
+            dfs[gene].to_excel(writer, sheet_name = gene, index = False)
+
+def main():
+
+    genomes = list(Path('complete/genomes').glob('*.embl'))
+
+    all_cds_seqs = list()
+    all_prot_seqs  = list()
+    all_gene_info = dict()
+
+    strain_info = pd.read_csv('strains.txt', sep="\t")
+
+    for genome in tqdm(genomes):
+
+        accession, gene_info, cds_seqs, prot_seqs = get_gene_sequences(strain_info, genome)
+
+        all_cds_seqs.append(cds_seqs)
+        all_prot_seqs.append(prot_seqs)
+        all_gene_info[accession] = gene_info
+
+    write_seqs(all_prot_seqs, Path('complete/fasta/protein'))
+    blast_index(Path("complete", "fasta", "protein"), Path("complete", "blast", "protein"))
+    summarise_genes(strain_info, all_gene_info)
+
+if __name__ == "__main__":
+    main()

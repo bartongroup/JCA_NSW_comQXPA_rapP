@@ -51,3 +51,7 @@ The `workflow/Snakefile` sets a `busco_lineage` variable at the top of the file 
 Genomes which are considered 'complete' based upon a BUSCO completeness score >98% are identified using the `bin/select_complete.py` script. This simply parses the json BUSCO outputs to identify those which have >98% completion, and creates copies in a `complete` subdirectory, including embl-formatted genomes, fasta files and blast databases.
 
 The completeness threshold is defined by the `THRESHOLD` constand at the top of the script, while the NCBI taxonomy identifier used is similarly defined within the NCBI_TAX_ID constant. 
+
+## Sequence extraction
+
+*comP* and *comQ* are still inconsitently annotated, however *comX* is reliably named so used as an anchor to obtain the flanking genes. The `extract_sequences.py` script takes care of this and produced a fasta file for each of the three genes in '`complete/fasta/protein` and blast databases in `complete/blast/protein`. A summary spreadsheet containing info about the genes is also created in `complete/gene_summary.xlsx`
