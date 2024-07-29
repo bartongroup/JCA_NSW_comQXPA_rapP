@@ -15,6 +15,8 @@ from Bio.Seq import Seq
 from pathlib import Path
 from tqdm import tqdm
 
+from pprint import pprint
+
 NCBI_TAXID = '1423'
 
 def get_qualifier(name, feature):
@@ -88,6 +90,7 @@ def get_gene_sequences(strain_info, genome):
     accession = str(genome.stem).replace('.embl','')
 
     with open(genome, 'r') as fh:
+
         for record in SeqIO.parse(fh, format = 'embl'):
 
             ''' 
@@ -109,49 +112,50 @@ def get_gene_sequences(strain_info, genome):
                         
                         Since we have consistent annotation formats, we should
                         be able to rely on the surrounding features being the
-                        comX CDS, and the comP and comQ genes and CDSs
+                        comX CDS, and the comP and comQ genes and CDSs, which 
+                        helps given some sequences are fairly divergent
                         '''
 
                         if feature.location.strand== -1:
 
-                            gene_info['strand']='+'
+                            gene_info['strand']='-'
                             cds_indices['comX'] = comX_gene_index + 1
-                            cds_indices['comP'] = comX_gene_index - 1 
+                            cds_indices['comP'] = comX_gene_index - 1
                             cds_indices['comQ'] = comX_gene_index + 3
+                            cds_indices['comA'] = comX_gene_index - 3 
 
                         else:
 
-                            gene_info['strand']='-'
+                            gene_info['strand']='+'
                             cds_indices['comX'] = comX_gene_index + 1
-                            cds_indices['comP'] = comX_gene_index + 3 
+                            cds_indices['comP'] = comX_gene_index + 3
                             cds_indices['comQ'] = comX_gene_index - 1
+                            cds_indices['comA'] = comX_gene_index + 5
 
                         for index in cds_indices.keys():
 
                             cds_info = extract_feature_details(record.features[cds_indices[index]])
 
+                            # comP frameshifts can not only cause a truncation, but also a second product from the 3' region, 
+                            # which screws up comA positioning, as do transposase insertions within comP
+
+                            # These checks work with all available genomes at the time of writing but changes may be required 
+                            # in the light of novel sequences being produced
+                            if index == 'comA':
+                                if 'histidine kinase' in cds_info['product'] or 'hypothetical protein' in cds_info['product']:
+                                    if gene_info['strand']=='-':
+                                        cds_info = extract_feature_details(record.features[comX_gene_index-5])
+                                    else:
+                                        cds_info = extract_feature_details(record.features[comX_gene_index+7])
+                                elif 'transposase' in cds_info['product']:
+                                    if gene_info['strand']=='-':
+                                        cds_info = extract_feature_details(record.features[comX_gene_index-7])
+                                    else:
+                                        cds_info = extract_feature_details(record.features[comX_gene_index+9])
+
                             id = f'{accession}_{cds_info.get("gene_id")}'
                             name = strain_info.loc[strain_info['accession']==accession,'isolate'].values[0]
                             
-                            # Seem to have issues with getting appropriate translations here...
-                            # My need to revisit...
-                            # location = cds_info.get("location")
-                            # start,end = location.split('-')
-                            # start = start.replace('>','').replace('<','')
-                            # end = end.replace('>','').replace('<','')
-
-                            # cds_seq = record.seq[int(start)+3:int(end)]
-                            # if gene_info['strand'] == '-':
-                            #     cds_seq = cds_seq.reverse_complement()
-
-                            # cds = SeqRecord(
-                            #         Seq(cds_seq),
-                            #         id = id,
-                            #         description = f"{name} {cds_info.get('product')}",
-                            #         annotations={'molecule_type': "dna"}
-                            #     )
-                            # cds_seqs[index] = cds
-
                             if cds_info.get('translation'):
 
                                 protein = SeqRecord(
@@ -288,7 +292,7 @@ def main():
         all_prot_seqs.append(prot_seqs)
         all_gene_info[accession] = gene_info
 
-    write_seqs(all_prot_seqs, Path('complete/fasta/protein'))
+    write_seqs(all_prot_seqs, Path('complete/fasta/com_proteins'))
     blast_index(Path("complete", "fasta", "protein"), Path("complete", "blast", "protein"))
     summarise_genes(strain_info, all_gene_info)
 
