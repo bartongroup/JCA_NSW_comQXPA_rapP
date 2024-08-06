@@ -65,6 +65,8 @@ def extract_feature_details(feature):
         feature_info['note'] = feature.qualifiers.get('note')[-1]
     else:
         feature_info['note'] = None
+    
+    feature_info['locus_tag'] = get_qualifier('locus_tag', feature)
 
     return(feature_info)
 
@@ -153,6 +155,7 @@ def get_gene_sequences(strain_info, genome):
                                     else:
                                         cds_info = extract_feature_details(record.features[comX_gene_index+9])
 
+                            cds_info['record_id'] = record.id
                             id = f'{accession}_{cds_info.get("gene_id")}'
                             name = strain_info.loc[strain_info['accession']==accession,'isolate'].values[0]
                             
@@ -161,7 +164,7 @@ def get_gene_sequences(strain_info, genome):
                                 protein = SeqRecord(
                                     Seq(cds_info['translation']), 
                                         id = id, 
-                                        description = f"{name} {cds_info.get('product')}",
+                                        description = cds_info.get('product'),
                                         annotations={'molecule_type': "protein"}
                                 )
                                 prot_seqs[index] = protein
@@ -267,7 +270,7 @@ def summarise_genes(strain_info, gene_info):
     dfs = dict()
     for gene in seq_lists.keys():
         df = pd.DataFrame(seq_lists[gene])
-        df = df[['accession','strain','gene_id','cds_length','product','strand','location','pseudogene','note']]
+        df = df[['accession','record_id','strain','gene_id','locus_tag','cds_length','product','strand','location','pseudogene','note']]
         dfs[gene] = df
 
     with pd.ExcelWriter('complete/gene_summary.xlsx') as writer:
