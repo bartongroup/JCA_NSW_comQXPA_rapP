@@ -22,3 +22,5 @@ job_logs
 .DS_Store
 gtdbtk
 protein_check
+operon
+mummer
