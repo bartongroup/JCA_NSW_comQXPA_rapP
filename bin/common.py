@@ -1,20 +1,16 @@
 '''
 Functions reused in multiple scripts live here...
 '''
-from tqdm import tqdm
-from Bio import SeqIO
-from lxml import etree
+
 from pathlib import Path
-import requests
 import subprocess
 import sys
 import re
 
-NCBI_TAXID = '1423'
-
-"""
-Identifies all complete B.subtilis genomes available via ENA and downloads them
-"""
+from Bio import SeqIO
+from lxml import etree
+import requests
+from tqdm import tqdm
 
 def make_request(uri):
 
@@ -28,11 +24,11 @@ def make_request(uri):
         text of response
     """
     try:
-        r = requests.get(uri)
-    except Exception as e:
-        print(f'Error requesting {uri}: {e}')
+        r = requests.get(uri, timeout=30)
+    except requests.exceptions.RequestException as errex:
+        print(f"Exception: {uri} - {errex}")
 
-    return(r.text)
+    return r.text
 
 
 def get_taxa_name(ncbi_taxid):
@@ -56,16 +52,16 @@ def get_taxa_name(ncbi_taxid):
 
     error = root.xpath("/ErrorDetails/status")
     if error:
-        print(f"Error obtaining taxonomy lookup")
+        print("Error obtaining taxonomy lookup")
         print(root)
         sys.exit(1)
 
     taxon = root.xpath("/TAXON_SET/taxon")[0]
     species_name = taxon.get('scientificName')
 
-    return(species_name)
+    return species_name
 
-def blast_index(fasta_dir, blast_dir, species):
+def blast_index(fasta_dir, blast_dir, species, ncbi_taxid):
 
     """
     Creates a blast index for each fasta file contained within directory
@@ -73,17 +69,19 @@ def blast_index(fasta_dir, blast_dir, species):
     Required parameters:
         fasta_dir(Path): Location of fasta files
         blast_dir(Path): Location of blast database
+        species(str): Species name
+        ncbi_taxid(str): NCBI taxonomy ID
 
     Returns:
         None
     """
 
-    accessions = list()
+    accessions = []
     db_stats = {'count': 0, 'length': 0}
-    
+
     fasta_files = fasta_dir.glob('*.fasta')
     for fasta_file in tqdm(fasta_files, desc = 'Blast index'):
-        with open(fasta_file, 'r') as fh:
+        with open(fasta_file, 'r', encoding='UTF-8') as fh:
             records = SeqIO.parse(fh, format = 'fasta')
             for record in records:
                 db_stats['count'] += 1
@@ -93,14 +91,12 @@ def blast_index(fasta_dir, blast_dir, species):
         accessions.append(accession)
 
         cmd = ["makeblastdb",  "-in",  fasta_file, "-dbtype", "nucl", "-out", blast_dir / Path(accession),
-               "-taxid", NCBI_TAXID, "-title", accession]
+               "-taxid", ncbi_taxid, "-title", accession]
         try:
-            result = subprocess.run(cmd, check = True, capture_output = True)
+            subprocess.run(cmd, check = True, capture_output = True)
         except subprocess.CalledProcessError as e:
-            print(f"Index failed: {accession}")
-            print(result.stdout)
-            print(result.stderr)
-    
+            print(f"Index failed: {accession} - {e}")
+
     accessions = ' '.join([f"{a}" for a in accessions])
 
     index = f'''\
@@ -110,7 +106,7 @@ NSEQ {db_stats['count']}
 LENGTH {db_stats['length']}
 '''.strip()
 
-    with open(f'{blast_dir}/{species.replace(' ','_')}_complete_genomes.nal', 'w') as fh:
+    with open(f'{blast_dir}/{species.replace(' ','_')}_complete_genomes.nal', 'w', encoding='UTF-8') as fh:
         fh.writelines(index)
 
 def clean_description(description):
@@ -132,7 +128,7 @@ def clean_description(description):
     description = re.sub(r'NODE[A-Za-z0-9_,]*', '', description)
     description = re.sub(r'[ ,]*$','', description)
 
-    return(description)
+    return description
 
 def clean_strain(strain):
 
@@ -149,6 +145,5 @@ def clean_strain(strain):
     strain = re.sub(r'[, ]*(Mutant )?Bacillus subtilis (strain|isolate) [.]*', '', strain)
     strain = re.sub(r'[, ]*(Mutant )?Bacillus subtilis [.]*', '', strain)
     strain = re.sub(r' (strain|isolate)', '', strain)
-    #strain = strain.replace(' ', '_')
 
-    return(strain)
+    return strain
