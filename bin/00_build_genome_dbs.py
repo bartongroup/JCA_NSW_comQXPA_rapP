@@ -248,11 +248,11 @@ def main():
     species_name = get_taxa_name(NCBI_TAXID)
 
     # Locations for storing various data types
-    xml_dir = Path(__file__).parents[1] / Path("xml")
-    genome_dir = Path(__file__).parents[1] / Path("genomes")
-    fasta_dir = Path(__file__).parents[1] / Path("fasta")
-    blast_dir = Path(__file__).parents[1] / Path("blast_db")
-    output_dir = Path(__file__).parents[1] / Path("outputs")
+    xml_dir = Path(__file__).parents[1] / Path("data/full/xml")
+    genome_dir = Path(__file__).parents[1] / Path("data/full/genomes")
+    fasta_dir = Path(__file__).parents[1] / Path("data/full/fasta")
+    blast_dir = Path(__file__).parents[1] / Path("data/full/blast_db")
+    output_dir = Path(__file__).parents[1] / Path("data/full/outputs")
 
     xml_dir.mkdir(exist_ok=True)
     genome_dir.mkdir(exist_ok=True)
@@ -282,7 +282,7 @@ def main():
 
     # Convert assemblies to fasta format and blast index
     fasta_convert(genome_dir, fasta_dir, species_name)
-    blast_index(fasta_dir, blast_dir, species_name)
+    blast_index(fasta_dir, blast_dir, species_name, NCBI_TAXID)
 
 
 if __name__ == "__main__":
