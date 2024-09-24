@@ -14,6 +14,7 @@ busco
 busco_data
 busco_downloads
 complete
+final
 strains.txt
 .Rproj.user
 refined
@@ -28,3 +29,7 @@ mummer
 dnadiff
 bcgTree
 results
+phylogeny
+check_broken_clade
+alignments
+NCIB3610
