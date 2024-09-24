@@ -254,11 +254,11 @@ def main():
     blast_dir = Path(__file__).parents[1] / Path("data/full/blast_db")
     output_dir = Path(__file__).parents[1] / Path("data/full/outputs")
 
-    xml_dir.mkdir(exist_ok=True)
-    genome_dir.mkdir(exist_ok=True)
-    fasta_dir.mkdir(exist_ok=True)
-    blast_dir.mkdir(exist_ok=True)
-    output_dir.mkdir(exist_ok=True)
+    xml_dir.mkdir(exist_ok=True, parents=True)
+    genome_dir.mkdir(exist_ok=True, parents=True)
+    fasta_dir.mkdir(exist_ok=True, parents=True)
+    blast_dir.mkdir(exist_ok=True, parents=True)
+    output_dir.mkdir(exist_ok=True, parents=True)
 
     # Obtain total list of assemblies available
     genome_info = search_available()
