@@ -1,23 +1,22 @@
 from pathlib import Path
-import pandas as pd
-import re
 
 busco_lineage = 'bacillales_odb10'
 cwd = Path('.').resolve()
-excel_files = list(cwd.glob('*.xlsx'))
-genome_df = pd.read_excel(excel_files[0])
-genome_df = genome_df[['accession', 'isolate']]
 
-genome_info = genome_df.set_index('accession').to_dict()
-
-GENOMES = Path('fasta').glob('*')
+GENOMES = Path('data/full/fasta').glob('*')
 GENOMES = [genome.stem for genome in GENOMES]
-BAKTA_DB = ['db/bakta.db']
+BAKTA_DB_FILES = [ 'antifam.h3f', 'antifam.h3i', 'antifam.h3m', 'antifam.h3p', 'bakta.db',
+        'expert-protein-sequences.dmnd', 'ncRNA-genes.i1f', 'ncRNA-genes.i1i', 'ncRNA-genes.i1m',
+        'ncRNA-genes.i1p', 'ncRNA-regions.i1f', 'ncRNA-regions.i1i', 'ncRNA-regions.i1m',
+        'ncRNA-regions.i1p', 'oric.fna', 'orit.fna', 'pfam.h3f', 'pfam.h3i', 'pfam.h3m', 'pfam.h3p',
+        'rfam-go.tsv', 'rRNA.i1f', 'rRNA.i1i', 'rRNA.i1m', 'rRNA.i1p', 'sorf.dmnd'
+    ]
+BAKTA_DB = expand('databases/bakta/db/{file}', file = BAKTA_DB_FILES)
 BAKTA_SUFFIXES = ['tsv', 'gff3', 'gbff', 'embl', 'fna', 'ffn', 'faa', 
     'hypotheticals.tsv', 'hypotheticals.faa', 'json', 'txt', 'png', 'svg']
-BAKTA_ANNOTS = expand('annotations/{genome}/{genome}.{suffix}', genome = GENOMES, suffix = BAKTA_SUFFIXES)
-BUSCO_DATA = expand('busco_data/lineages/{busco_lineage}/dataset.cfg', busco_lineage = busco_lineage)
-BUSCOS = expand('busco/{genome}/run_{lineage}/full_table.tsv', genome = GENOMES, lineage = busco_lineage)
+BAKTA_ANNOTS = expand('data/full/annotations/{genome}/{genome}.{suffix}', genome = GENOMES, suffix = BAKTA_SUFFIXES)
+BUSCO_DATA = expand('databases/busco/lineages/{busco_lineage}/dataset.cfg', busco_lineage = busco_lineage)
+BUSCOS = expand('data/full/busco/{genome}/run_{lineage}/full_table.tsv', genome = GENOMES, lineage = busco_lineage)
 
 rule all:
     input: BUSCOS
@@ -26,18 +25,31 @@ rule bakta_db:
     output: BAKTA_DB
     conda: 'envs/bakta.yaml'
     log: 'workflow/logs/bakta_db.log'
-    shell: 'bakta_db download --type full > {log} 2>&1'
+    shell: 'bakta_db download --type full -o databases/bakta > {log} 2>&1'
 
 rule bakta:
-    input: 'fasta/{genome}.fasta', BAKTA_DB
-    output: 'annotations/{genome}/{genome}.tsv', 'annotations/{genome}/{genome}.gff3', 'annotations/{genome}/{genome}.gbff',
-            'annotations/{genome}/{genome}.embl', 'annotations/{genome}/{genome}.fna', 'annotations/{genome}/{genome}.ffn',
-            'annotations/{genome}/{genome}.faa', 'annotations/{genome}/{genome}.hypotheticals.tsv', 
-            'annotations/{genome}/{genome}.hypotheticals.faa', 'annotations/{genome}/{genome}.json', 
-            'annotations/{genome}/{genome}.txt', 'annotations/{genome}/{genome}.png', 'annotations/{genome}/{genome}.svg'
+    input: 
+        fasta = 'data/full/fasta/{genome}.fasta', 
+        db = BAKTA_DB
+    output: 'data/full/annotations/{genome}/{genome}.tsv', 'data/full/annotations/{genome}/{genome}.gff3', 'data/full/annotations/{genome}/{genome}.gbff',
+            'data/full/annotations/{genome}/{genome}.embl', 'data/full/annotations/{genome}/{genome}.fna', 'data/full/annotations/{genome}/{genome}.ffn',
+            'data/full/annotations/{genome}/{genome}.faa', 'data/full/annotations/{genome}/{genome}.hypotheticals.tsv', 
+            'data/full/annotations/{genome}/{genome}.hypotheticals.faa', 'data/full/annotations/{genome}/{genome}.json', 
+            'data/full/annotations/{genome}/{genome}.txt', 'data/full/annotations/{genome}/{genome}.png', 'data/full/annotations/{genome}/{genome}.svg'
     conda: 'envs/bakta.yaml'
     log: 'workflow/logs/bakta.{genome}.log'
-    shell: 'bin/bakta.sh -n {wildcards.genome} -g Bacillus -s subtilis -o annotations/{wildcards.genome} > {log} 2>&1'
+    shell: """
+bakta --db databases/bakta/db \
+      --prefix {wildcards.genome} \
+      --genus Bacillus \
+      --species subtilis \
+      --compliant \
+      --threads 8 \
+      --force \
+      --output data/full/annotations/{wildcards.genome} \
+      {input.fasta} \
+      > {log} 2>&1
+    """
 
 rule busco_lineage:
     output: BUSCO_DATA
@@ -45,15 +57,23 @@ rule busco_lineage:
         lineage = busco_lineage
     conda: 'envs/busco.yaml'
     log: 'workflow/logs/busco_download.log'
-    shell: 'busco --download_path busco_data --download {params.lineage} > {log} 2>&1'
+    shell: 'busco --download_path databases/busco --download {params.lineage} > {log} 2>&1'
 
 rule busco:
-    input: 'annotations/{genome}/{genome}.fna', BUSCO_DATA
-    output: 'busco/{genome}/run_bacillales_odb10/full_table.tsv'
+    input: 
+        fasta = 'data/full/annotations/{genome}/{genome}.fna', 
+        db = BUSCO_DATA
+    output: 'data/full/busco/{genome}/run_bacillales_odb10/full_table.tsv'
     conda: 'envs/busco.yaml'
     params:
         lineage = busco_lineage,
         cwd = cwd
     log: 'workflow/logs/busco.{genome}.log'
-    shell: 'bin/busco.sh -g {wildcards.genome} -l busco_data/lineages/{params.lineage} \
-        -o busco/{wildcards.genome} > {log} 2>&1'
+    shell: """
+busco -f -l {params.lineage} \
+      --mode genome \
+      -i {input.fasta} \
+      -c 8 \
+      -o data/full/busco/{wildcards.genome} \
+      > {log} 2>&1
+"""
