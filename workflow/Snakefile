@@ -75,5 +75,8 @@ busco -f -l {params.lineage} \
       -i {input.fasta} \
       -c 8 \
       -o data/full/busco/{wildcards.genome} \
+      --offline \
+      --download_path databases/busco \
+      -q \
       > {log} 2>&1
 """
