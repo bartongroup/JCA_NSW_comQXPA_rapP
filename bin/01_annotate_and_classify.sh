@@ -1,5 +1,8 @@
 #!/bin/env bash
 
+# Runs a Snakemake workflow to annotate downloaded genomes with bakta,
+# assess completeness with busco and classify taxonomy with GTDB-TK
+
 set -e 
 
 # Some sanity checking...
