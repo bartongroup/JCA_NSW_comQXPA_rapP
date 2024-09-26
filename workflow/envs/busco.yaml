@@ -2,6 +2,5 @@ name: busco
 channels:
   - bioconda
   - conda-forge
-  - defaults
 dependencies:
   - busco==5.7.1
