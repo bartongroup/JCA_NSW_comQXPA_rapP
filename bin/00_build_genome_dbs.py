@@ -229,17 +229,8 @@ def fasta_convert(genome_dir, fasta_dir, species_name):
             metadata["scaffolds"] = len(records)
             metadata_list.append(metadata)
 
-    summary = pd.DataFrame(metadata_list)
-    date = datetime.today().strftime("%d-%m-%Y")
-    outfile = f"{species_name.replace(' ', '_')}_complete_genomes_{date}.txt"
-    summary = summary[summary.scaffolds != 0]
 
-    summary.to_csv(outfile, sep="\t", index=False, header=True)
-
-    summary.drop(["source", "scaffolds", "clean_strain"], inplace=True, axis=1)
-    summary.to_csv("strains.txt", sep="\t", header=True, index=False)
-
-    return summary
+    return metadata_list 
 
 
 def main():
@@ -280,8 +271,18 @@ def main():
                 print(f"{accession} could not be successfully downloaded")
 
     # Convert assemblies to fasta format and blast index
-    fasta_convert(genome_dir, fasta_dir, species_name)
+    metadata_list = fasta_convert(genome_dir, fasta_dir, species_name)
     blast_index(fasta_dir, blast_dir, species_name, NCBI_TAXID)
+
+    summary = pd.DataFrame(metadata_list)
+    date = datetime.today().strftime("%d-%m-%Y")
+    outfile = f"{species_name.replace(' ', '_')}_complete_genomes_{date}.txt"
+    summary = summary[summary.scaffolds != 0]
+
+    summary.to_csv(outfile, sep="\t", index=False, header=True)
+
+    summary.drop(["source", "scaffolds", "clean_strain"], inplace=True, axis=1)
+    summary.to_csv("strains.txt", sep="\t", header=True, index=False)
 
 
 if __name__ == "__main__":
