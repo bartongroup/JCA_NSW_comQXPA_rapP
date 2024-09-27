@@ -106,7 +106,8 @@ NSEQ {db_stats['count']}
 LENGTH {db_stats['length']}
 '''.strip()
 
-    with open(f'{blast_dir}/{species.replace(' ','_')}_complete_genomes.nal', 'w', encoding='UTF-8') as fh:
+    species_name=species.replace(' ','_')
+    with open(f'{blast_dir}/{species_name}_complete_genomes.nal', 'w', encoding='UTF-8') as fh:
         fh.writelines(index)
 
 def clean_description(description):
