@@ -1,0 +1,11 @@
+name: bakta 
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - gtdbtk==2.4.0
+  - beautifulsoup4
+  - requests
+  - biopython
+  - lxml
+  - tqdm

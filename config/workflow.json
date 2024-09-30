@@ -20,5 +20,12 @@
         "local_free": "50G",
         "mem_free" : "24G",
         "threads" : "8"
+    },
+    "gtdbtk":
+    {
+        "jc": "short",
+        "local_free": "50G",
+        "mem_free": "120G",
+        "threads": "32"
     }
 }

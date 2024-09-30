@@ -1,10 +1,12 @@
 from pathlib import Path
 
 busco_lineage = 'bacillales_odb10'
+gtdb_version = '220'
+
 cwd = Path('.').resolve()
 
-GENOMES = Path('data/full/fasta').glob('*')
-GENOMES = [genome.stem for genome in GENOMES]
+GENOME_FILES = Path('data/full/fasta').glob('*')
+GENOMES = [genome.stem for genome in GENOME_FILES]
 BAKTA_DB_FILES = [ 'antifam.h3f', 'antifam.h3i', 'antifam.h3m', 'antifam.h3p', 'bakta.db',
         'expert-protein-sequences.dmnd', 'ncRNA-genes.i1f', 'ncRNA-genes.i1i', 'ncRNA-genes.i1m',
         'ncRNA-genes.i1p', 'ncRNA-regions.i1f', 'ncRNA-regions.i1i', 'ncRNA-regions.i1m',
@@ -18,8 +20,12 @@ BAKTA_ANNOTS = expand('data/full/annotations/{genome}/{genome}.{suffix}', genome
 BUSCO_DATA = expand('databases/busco/lineages/{busco_lineage}/dataset.cfg', busco_lineage = busco_lineage)
 BUSCOS = expand('data/full/busco/{genome}/run_{lineage}/full_table.tsv', genome = GENOMES, lineage = busco_lineage)
 
+# Way too many files in GTDB to list them all, so just one as a target
+GTDB = ['databases/gtdbtk/taxonomy/gtdb_taxonomy.tsv']
+GTDBTK = ['results/gtdbtk/gtdbtk.bac120.summary.tsv']
+
 rule all:
-    input: BUSCOS
+    input: BUSCOS + GTDBTK
 
 rule bakta_db:
     output: BAKTA_DB
@@ -79,4 +85,38 @@ busco -f -l {params.lineage} \
       --download_path databases/busco \
       -q \
       > {log} 2>&1
+    """
+
+rule gtdb:
+    output: GTDB
+    params:
+        gtdb_version = gtdb_version
+    conda: "envs/gtdbtk.yaml"
+    log: 'workflow/logs/gtdb.log'
+    shell: """
+bin/download_gtdbtk_db.py \
+  --release {params.gtdb_version} \
+  > {log} 2>&1
+"""
+
+rule gtdbtk:
+    input:
+        genomes = GENOME_FILES,
+        database = GTDB
+    output:
+        "results/gtdbtk/gtdbtk.bac120.summary.tsv"
+    conda: "envs/gtdbtk.yaml"
+    log: 'workflow/logs/gtdbtk.log'
+    shell: """
+export GTDBTK_DATA_PATH="databases/gtdbtk"
+gtdbtk classify_wf \
+        --skip_ani_screen \
+        --genome_dir data/full/fasta \
+        --out_dir results/gtdbtk/ \
+        -x fasta \
+        --cpus 32 \
+        --pplacer_cpus 32 \
+        --tmpdir $TMPDIR \
+        --force \
+        > {log} 2>&1
 """
