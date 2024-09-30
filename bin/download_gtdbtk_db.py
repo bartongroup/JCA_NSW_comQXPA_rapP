@@ -83,10 +83,7 @@ def unpack(release):
         handle.extractall(path='databases/gtdbtk_download/extract')
 
     for file in list(Path(f"databases/gtdbtk_download/extract/release{release}").glob("*")):
-        try:
-            shutil.move(str(file), "databases/gtdbtk")
-        except Exception as e:
-            print(f"Failed to move {file}: {e}")
+        shutil.move(str(file), "databases/gtdbtk")
 
     shutil.rmtree("databases/gtdbtk_download")
 
