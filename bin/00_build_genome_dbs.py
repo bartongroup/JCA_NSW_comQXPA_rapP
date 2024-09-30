@@ -2,14 +2,13 @@
 
 """
 Creates a database of all 'complete' genome sequences for a TAXID, reformats
-them to fasta, and indivudally blast indexes each genome, including creation
-of overall alias blast database
+them to fasta, while capturing metadata from biosample and the genome record
 """
 
 import gzip
 from pathlib import Path
 from datetime import datetime
-from json import loads
+import json
 
 from Bio import SeqIO
 from lxml import etree
@@ -18,10 +17,8 @@ import pandas as pd
 import requests
 
 from common import (
-    blast_index,
     get_taxa_name,
     clean_description,
-    clean_strain,
     make_request,
 )
 
@@ -42,18 +39,18 @@ def search_available():
 
     uri = f"{ENA_URI}portal/api/search?result=assembly&query=tax_tree({NCBI_TAXID})&fields=assembly_title,tax_id&format=json"
     result = make_request(uri)
-    json = loads(result)
+    json_data = json.loads(result)
 
-    return json
+    return json_data
 
 
-def download_assembly_xml(local_file, accession):
+def download_xml(local_file, uri):
     """
-    Retrieves details on an assembly from EBI
+    Downloads xml file from remote site to specified directory
 
     Required parameters:
         local_file(pathlib::Path): Path for local copy of the xml
-        accession(str): assembly accession
+        uri(str): URI of xml document
 
     Returns:
         None
@@ -61,10 +58,27 @@ def download_assembly_xml(local_file, accession):
 
     if not local_file.exists():
 
-        uri = f"{ENA_URI}browser/api/xml/{accession}"
         result = make_request(uri)
         with open(local_file, "w", encoding='UTF-8') as fh:
             fh.writelines(result)
+
+def get_xpath (tree, query):
+    """
+    Extracts desired field from XML tree with XPATH
+
+    Required params:
+        tree(etree): parsed xml tree
+        query(str): Xpath query
+
+    Returns:
+        value(str): parsed value
+    """
+    tags = tree.xpath(query)
+
+    if len(tags):
+        return tags[0].text
+    else:
+        return None
 
 
 def is_complete(local_file):
@@ -74,7 +88,9 @@ def is_complete(local_file):
     0 spanned gaps
     0 unspanned gaps
 
-    Some assemblies are reporting 0 gaps when the are in hundreds of contigs...
+    Some assemblies are reporting 0 gaps when the are in hundreds of contigs, so 
+    this is really an initial screen to save downloading clearly fragmented genomes
+    but these will need checking once available locally
 
     Required params:
         local_file(pathlib.path) : Path to xml file
@@ -85,7 +101,7 @@ def is_complete(local_file):
 
     state = False
 
-    # set defaults which will not trigger detection if assembly 
+    # set defaults which will not trigger detection if assembly
     # attributes missing from record
     spanned_gaps = 1
     unspanned_gaps = 1
@@ -99,7 +115,8 @@ def is_complete(local_file):
     if error:
         print(f"{local_file} error status: {error[0].text}")
     else:
-        #  Scaffold number and ghp info is stored within 
+
+        #  Scaffold number and ghp info is stored within
         # ASSEMBLY_ATTRIBUTES as follow:
 
         #  <ASSEMBLY_ATTRIBUTE>
@@ -116,23 +133,9 @@ def is_complete(local_file):
         #    <VALUE>0</VALUE>
         #  </ASSEMBLY_ATTRIBUTE>
 
-        tags = tree.xpath(
-            ".//ASSEMBLY_ATTRIBUTE/TAG[contains(text(),'scaffold-count')]/following-sibling::VALUE"
-        )
-        if len(tags):
-            scaffold_count = tags[0].text
-
-        tags = tree.xpath(
-            ".//ASSEMBLY_ATTRIBUTE/TAG[contains(text(),'spanned-gaps')]/following-sibling::VALUE"
-        )
-        if len(tags):
-            spanned_gaps = tags[0].text
-
-        tags = tree.xpath(
-            ".//ASSEMBLY_ATTRIBUTE/TAG[contains(text(),'unspanned-gaps')]/following-sibling::VALUE"
-        )
-        if len(tags):
-            unspanned_gaps = tags[0].text
+        scaffold_count = get_xpath(tree, ".//ASSEMBLY_ATTRIBUTE/TAG[contains(text(),'scaffold-count')]/following-sibling::VALUE")
+        spanned_gaps = get_xpath(tree, ".//ASSEMBLY_ATTRIBUTE/TAG[contains(text(),'spanned-gaps')]/following-sibling::VALUE")
+        unspanned_gaps = get_xpath(tree, ".//ASSEMBLY_ATTRIBUTE/TAG[contains(text(),'unspanned-gaps')]/following-sibling::VALUE")
 
         if (
             scaffold_count
@@ -144,6 +147,128 @@ def is_complete(local_file):
 
     return state
 
+
+def query_biosample(biosample_acc, xml_dir):
+    """
+    Queries NCBI eutils for biosample metadata - EBI seems to be missing some entries which are present at the NCBI
+
+    Required parameters:
+        biosample_id(str): Biosample accession
+
+    Returns:
+        metadata(dict): Parsed metadata values
+    """
+
+    fields = ["strain", "culture_collection", "collection_date", "geo_loc_name", "host", "isolation_source"]
+
+    metadata = dict.fromkeys(fields)
+
+    # eutils does not allow direct querying with the biosample accession - we first need to look up the ID
+    uri = f"https://eutils.ncbi.nlm.nih.gov//entrez/eutils/esearch.fcgi?db=biosample&term={biosample_acc}&format=json"
+    biosample_data = json.loads(make_request(uri))
+    biosample_id = biosample_data["esearchresult"]["idlist"][0]
+
+    local_file = xml_dir / f"{biosample_id}.xml"
+    # XML files are cached locally to ensure we can get a full set by rerunning due to vagaries of web services...
+    if not local_file.exists():
+        uri = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=biosample&id={biosample_id}"
+        download_xml(local_file, uri)
+
+    with open(local_file, 'r', encoding='UTF-8') as fh:
+        xml_doc = fh.read()
+
+    tree = etree.fromstring(xml_doc.replace(' encoding="UTF-8"', ''))
+
+    error = tree.xpath("/ErrorDetails/status")
+    if error:
+        print(f"{biosample_id} error status: {error[0].text}")
+    else:
+        query = ".//Biosample/@submission_date"
+        metadata['submission_date'] = get_xpath(tree, query)
+
+        for field in fields:
+            # some field names may be in attribute_name or harmonized_name attributes
+            query = f".//Attributes/Attribute[@attribute_name='{field}']"
+            result = get_xpath(tree, query)
+
+            if result:
+                metadata[field] = result
+            else:
+                query = f".//Attributes/Attribute[@harmonized_name='{field}']"
+                metadata[field] = get_xpath(tree, query)
+
+        if not metadata['geo_loc_name']:
+            # we have some misformed tags...in our own submissions...oops...
+            query = ".//Attributes/Attribute[@attribute_name='geographic location (region and locality']"
+            metadata['geo_loc_name'] = get_xpath(tree, query)
+
+    return metadata
+
+def extract_metadata(genome, local_xml, xml_dir):
+    """
+    Extracts some metadata from the xml file and also via query_biosample
+    
+    Required parameters: 
+        local_xml(pathlib::Path) - Path to local xml file for assembly
+        xml_dir(pathlib::Path) - Path to store biosample xml file
+    
+    Returns:
+        metadata(dict) - dictionary of collected values
+    """
+
+    tree = etree.parse(local_xml)
+
+    metadata = dict.fromkeys(['study_id', 'biosample_id'])
+
+    # Some accessions are returning as not found so these need to be handled
+    error = tree.xpath("/ErrorDetails/status")
+    if error:
+        print(f"{local_xml} error status: {error[0].text}")
+    else:
+        tags = tree.xpath( ".//STUDY_REF/IDENTIFIERS/PRIMARY_ID")
+        if len(tags):
+            metadata['study_id'] = tags[0].text
+
+        tags = tree.xpath( ".//SAMPLE_REF/IDENTIFIERS/PRIMARY_ID")
+        if len(tags):
+            metadata['biosample_id'] = tags[0].text
+
+    biosample_metadata = query_biosample(metadata['biosample_id'], xml_dir)
+    metadata = metadata | biosample_metadata
+
+    # add additional metadate from genome record
+    metadata = extract_embl_metadata(metadata, genome)
+
+    return metadata
+
+def extract_embl_metadata(metadata, genome):
+    """
+    Attempt to populate metadata fields not present in biosample metadata from embl record
+
+    Required parameters:
+        metadata(dict): metadata dictionary
+        genome(pathlib::Path): Path to downloaded genome record
+    
+    Returns:
+        metadata(dict): metadata dictionary
+    """
+
+    # 
+    if genome.stat().st_size > 20: # size of an empty gzipped record
+        with gzip.open(genome, "rt") as embl_fh:
+            record = list(SeqIO.parse(embl_fh, format="embl"))[0]
+
+            metadata["title"] = clean_description(record.description)
+
+            if not metadata["isolation_source"]:
+                for feature in record.features:
+                    if feature.type == "source":
+                        source = feature.qualifiers.get("isolation_source")
+                        if source is not None:
+                            metadata["isolation_source"] = source[0]
+                        break
+
+    return metadata
 
 def download_assembly(accession, local_genome):
 
@@ -178,77 +303,52 @@ def download_assembly(accession, local_genome):
     return ok
 
 
-def fasta_convert(genome_dir, fasta_dir, species_name):
+def fasta_convert(accession, genome_dir, fasta_dir):
     """
-    Converts all embl format records to fasta
+    Converts an embl format records to fasta
 
     Required parameters:
+        accession(str): Accession of entry to convert
         genome_dir(Path): Path to genomes directory
         fasta_dir(Path): Path to fasta directory
-        species_name(str): Name of species
 
     Returns:
         None
     """
 
-    genomes = genome_dir.glob("*.gz")
-    metadata_list = []
+    records = []
+    genome = genome_dir / f"{accession}.embl.gz"
 
-    for genome in tqdm(genomes, desc="Reformat", leave=None):
+    fasta_path = fasta_dir / f"{accession}.fasta"
 
-        metadata = {}
-        records = []
+    with gzip.open(genome, "rt") as embl_fh:
+        for record in SeqIO.parse(embl_fh, format="embl"):
 
-        accession = genome.name.replace(".embl.gz", "")
-        fasta_file = f"{accession}.fasta"
-        fasta_path = fasta_dir / Path(fasta_file)
+            record.id = f"lcl|{record.id}"
+            records.append(record)
 
-        with gzip.open(genome, "rt") as embl_fh:
-            for record in SeqIO.parse(embl_fh, format="embl"):
+    if records:  # for empty embl records from bad accessions
+        with open(fasta_path, "w", encoding='UTF-8') as fasta_fh:
+            SeqIO.write(records, fasta_fh, format="fasta")
 
-                if not metadata.get("accession"):
-
-                    metadata["accession"] = accession
-                    metadata["isolate"] = clean_description(record.description)
-                    metadata["clean_strain"] = clean_strain(metadata["isolate"])
-
-                    for feature in record.features:
-                        if feature.type == "source":
-
-                            source = feature.qualifiers.get("isolation_source")
-                            if source is not None:
-                                metadata["source"] = source[0]
-
-                record.id = f"lcl|{record.id}"
-                records.append(record)
-
-        if records:  # for empty embl records
-            with open(fasta_path, "w", encoding='UTF-8') as fasta_fh:
-                SeqIO.write(records, fasta_fh, format="fasta")
-
-            metadata["scaffolds"] = len(records)
-            metadata_list.append(metadata)
-
-
-    return metadata_list 
+    return len(records)
 
 
 def main():
     """Main process"""
     species_name = get_taxa_name(NCBI_TAXID)
+    metadata_list = []
 
     # Locations for storing various data types
-    xml_dir = Path(__file__).parents[1] / Path("data/full/xml")
+    ena_xml_dir = Path(__file__).parents[1] / Path("data/full/xml/ena")
+    biosample_xml_dir = Path(__file__).parents[1] / Path("data/full/xml/biosample")
     genome_dir = Path(__file__).parents[1] / Path("data/full/genomes")
     fasta_dir = Path(__file__).parents[1] / Path("data/full/fasta")
     blast_dir = Path(__file__).parents[1] / Path("data/full/blast_db")
     output_dir = Path(__file__).parents[1] / Path("data/full/outputs")
 
-    xml_dir.mkdir(exist_ok=True, parents=True)
-    genome_dir.mkdir(exist_ok=True, parents=True)
-    fasta_dir.mkdir(exist_ok=True, parents=True)
-    blast_dir.mkdir(exist_ok=True, parents=True)
-    output_dir.mkdir(exist_ok=True, parents=True)
+    for data_dir in (ena_xml_dir, biosample_xml_dir, genome_dir, fasta_dir, blast_dir, output_dir):
+        data_dir.mkdir(exist_ok=True, parents=True)
 
     # Obtain total list of assemblies available
     genome_info = search_available()
@@ -257,22 +357,26 @@ def main():
 
         accession = assembly.get("accession")
 
-        local_xml = xml_dir / Path(f"{accession}.xml")
+        local_ena_xml = ena_xml_dir / Path(f"{accession}.xml")
         local_genome = genome_dir / Path(f"{accession}.embl.gz")
 
         # Download SRA assembly XML...
-        download_assembly_xml(local_xml, accession)
+        download_xml(local_ena_xml, f"{ENA_URI}browser/api/xml/{accession}")
         # Check for genome completeness
-        complete = is_complete(local_xml)
+        complete = is_complete(local_ena_xml)
 
         if complete:
             ok = download_assembly(accession, local_genome)
-            if not ok:
-                print(f"{accession} could not be successfully downloaded")
+            if ok:
+                # Collect some metadata
+                metadata = extract_metadata(local_genome, local_ena_xml, biosample_xml_dir)
+                metadata['accession'] = accession
 
-    # Convert assemblies to fasta format and blast index
-    metadata_list = fasta_convert(genome_dir, fasta_dir, species_name)
-    blast_index(fasta_dir, blast_dir, species_name, NCBI_TAXID)
+                scaffolds = fasta_convert(accession, genome_dir, fasta_dir)
+                metadata['scaffolds'] = scaffolds
+                metadata_list.append(metadata)
+            else:
+                print(f"{accession} could not be successfully downloaded")
 
     summary = pd.DataFrame(metadata_list)
     date = datetime.today().strftime("%d-%m-%Y")
@@ -281,7 +385,7 @@ def main():
 
     summary.to_csv(outfile, sep="\t", index=False, header=True)
 
-    summary.drop(["source", "scaffolds", "clean_strain"], inplace=True, axis=1)
+    summary = summary[['accession', 'isolate']]
     summary.to_csv("strains.txt", sep="\t", header=True, index=False)
 
 
