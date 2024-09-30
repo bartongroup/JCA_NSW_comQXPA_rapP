@@ -10,6 +10,7 @@ import re
 from Bio import SeqIO
 from lxml import etree
 import requests
+from requests.adapters import HTTPAdapter, Retry
 from tqdm import tqdm
 
 def make_request(uri):
@@ -23,8 +24,18 @@ def make_request(uri):
     Returns:
         text of response
     """
+
+    s = requests.Session()
+
+    retries = Retry(total=10,
+              backoff_factor=2,
+              status_forcelist=[ 500, 502, 503, 504 ],
+              raise_on_status=True)
+
+    s.mount('https://', HTTPAdapter(max_retries=retries))
+
     try:
-        r = requests.get(uri, timeout=30)
+        r = s.get(uri, timeout=30)
     except requests.exceptions.RequestException as errex:
         print(f"Exception: {uri} - {errex}")
 
