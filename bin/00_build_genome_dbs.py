@@ -9,6 +9,7 @@ import gzip
 from pathlib import Path
 from datetime import datetime
 import json
+import re
 
 from Bio import SeqIO
 from lxml import etree
@@ -41,7 +42,33 @@ def search_available():
     result = make_request(uri)
     json_data = json.loads(result)
 
-    return json_data
+    # The search returns multiple assembly versions so we just need one of these
+    # Doesn't actually matter which since the genome download will get the latest 
+    # version of the assembly automatically. Not all assemblies conform to the 
+    # ASMxxxxxx standard however... 
+
+    accessions = []
+    assembly_re = re.compile(r'^(ASM[0-9]*)v([0-9])')
+    for assembly in json_data:
+        match = re.search(assembly_re, assembly['assembly_title'])
+        if match:
+            accessions.append(match.group(1))
+            assembly['assembly'] = match.group(1)
+            assembly['version'] = match.group(2)
+        else:
+            accessions.append(assembly['assembly_title'].split(maxsplit=1)[0])
+            assembly['assembly'] = assembly['assembly_title'].split(maxsplit=1)[0]
+
+    accessions=list(set(accessions))
+    filtered_json_data = []
+
+    for accession in accessions:
+        for assembly in json_data:
+            if assembly['assembly']==accession:
+                filtered_json_data.append(assembly)
+                break
+
+    return filtered_json_data
 
 
 def download_xml(local_file, uri):
@@ -327,7 +354,7 @@ def fasta_convert(accession, genome_dir, fasta_dir):
             record.id = f"lcl|{record.id}"
             records.append(record)
 
-    if records:  # for empty embl records from bad accessions
+    if records and not fasta_path.exists():  # for empty embl records from bad accessions
         with open(fasta_path, "w", encoding='UTF-8') as fasta_fh:
             SeqIO.write(records, fasta_fh, format="fasta")
 
@@ -356,7 +383,6 @@ def main():
     for assembly in tqdm(genome_info, desc="Download", leave=None):
 
         accession = assembly.get("accession")
-
         local_ena_xml = ena_xml_dir / Path(f"{accession}.xml")
         local_genome = genome_dir / Path(f"{accession}.embl.gz")
 
@@ -383,11 +409,16 @@ def main():
     outfile = f"{species_name.replace(' ', '_')}_complete_genomes_{date}.txt"
     summary = summary[summary.scaffolds != 0]
 
+    # remove the various different ways people provide metadata without providing metadata...
+    for phrase in ["[Nn]ot applicable", "NA", "missing", "[Uu]nknown", "[Nn]ot collected"]:
+        summary.replace(phrase, "", regex=True, inplace=True)
+
+    cols = ["accession", "study_id", "biosample_id", "strain", "title",
+            "scaffolds", "geo_loc_name", "host", "isolation_source", 
+            "culture_collection", "collection_date", "submission_date"]
+
+    summary = summary[cols]
     summary.to_csv(outfile, sep="\t", index=False, header=True)
-
-    summary = summary[['accession', 'isolate']]
-    summary.to_csv("strains.txt", sep="\t", header=True, index=False)
-
 
 if __name__ == "__main__":
     main()
