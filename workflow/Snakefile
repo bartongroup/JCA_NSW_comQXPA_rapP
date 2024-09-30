@@ -19,13 +19,15 @@ BAKTA_SUFFIXES = ['tsv', 'gff3', 'gbff', 'embl', 'fna', 'ffn', 'faa',
 BAKTA_ANNOTS = expand('data/full/annotations/{genome}/{genome}.{suffix}', genome = GENOMES, suffix = BAKTA_SUFFIXES)
 BUSCO_DATA = expand('databases/busco/lineages/{busco_lineage}/dataset.cfg', busco_lineage = busco_lineage)
 BUSCOS = expand('data/full/busco/{genome}/run_{lineage}/full_table.tsv', genome = GENOMES, lineage = busco_lineage)
+SKANI = ["results/skani/skani.out"]
+SKANI_PLOT = ["results/skani/skani.pdf", "results/gtdbtk/classifications.txt"]
 
 # Way too many files in GTDB to list them all, so just one as a target
 GTDB = ['databases/gtdbtk/taxonomy/gtdb_taxonomy.tsv']
 GTDBTK = ['results/gtdbtk/gtdbtk.bac120.summary.tsv']
 
 rule all:
-    input: BUSCOS + GTDBTK
+    input: BUSCOS + SKANI_PLOT + GTDBTK
 
 rule bakta_db:
     output: BAKTA_DB
@@ -64,6 +66,22 @@ rule busco_lineage:
     conda: 'envs/busco.yaml'
     log: 'workflow/logs/busco_download.log'
     shell: 'busco --download_path databases/busco --download {params.lineage} > {log} 2>&1'
+
+rule skani:
+    input: GENOME_FILES
+    output: "results/skani/skani.out"
+    log: 'workflow/logs/skani.log'
+    shell: """
+skani triangle -t 24 \
+    --slow \
+    -s 50 \
+    -o results/skani/skani.out \
+    --detailed \
+    --full-matrix \
+    --diagonal \
+    data/full/fasta/* \
+    > {log} 2>&1
+"""
 
 rule busco:
     input: 
@@ -119,4 +137,17 @@ gtdbtk classify_wf \
         --tmpdir $TMPDIR \
         --force \
         > {log} 2>&1
+"""
+
+rule skani_plot: 
+    input: SKANI, GTDBTK
+    output: "results/skani/skani.pdf", "results/gtdbtk/classifications.txt"
+    conda: "envs/R.yaml"
+    log: "workflow/logs/skani_plot.log"
+    shell:"""
+bin/ANI.R -f data/full/fasta \
+          -g results/gtdbtk \
+          -s results/skani/skani.out \
+          -o results/skani \
+          > {log} 2>&1
 """
