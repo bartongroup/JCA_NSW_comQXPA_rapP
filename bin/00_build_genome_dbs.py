@@ -25,6 +25,7 @@ from common import (
 
 NCBI_TAXID = "1423"
 ENA_URI = "https://www.ebi.ac.uk/ena/"
+ENVO_URI = "https://www.ebi.ac.uk/ols4/api/ontologies/envo/terms/http%253A%252F%252Fpurl.obolibrary.org%252Fobo%252F"
 
 
 def search_available():
@@ -43,9 +44,9 @@ def search_available():
     json_data = json.loads(result)
 
     # The search returns multiple assembly versions so we just need one of these
-    # Doesn't actually matter which since the genome download will get the latest 
-    # version of the assembly automatically. Not all assemblies conform to the 
-    # ASMxxxxxx standard however... 
+    # Doesn't actually matter which since the genome download will get the latest
+    # version of the assembly automatically. Not all assemblies conform to the
+    # ASMxxxxxx standard however...
 
     accessions = []
     assembly_re = re.compile(r'^(ASM[0-9]*)v([0-9])')
@@ -104,9 +105,55 @@ def get_xpath (tree, query):
 
     if len(tags):
         return tags[0].text
-    else:
-        return None
 
+    return None
+
+def merge_fields(field1, field2):
+
+    """ 
+    Merges two fields if they are both present, with a ':' separator
+
+    Required parameters: 
+        field1(str): first field
+        field2(str): second field
+
+    Returns:
+        merged(str): merged fields
+    """
+
+    merged = field2
+    if field1 and field2:
+        merged = ": ".join([field1, field2])
+
+    return merged
+
+def envo_lookup(term):
+    """
+    Looks up ENVO (environment ontology) terms to provide textual description
+
+    These may be provided either as 'ENVO:xxxxxxxx' or just a numeric string where the prefix has not been provided
+    
+    Required params: 
+        term(str): ENVO term
+    
+    Returns:
+        text(str): label of ENVO term
+    """
+    if term:
+
+        match = re.search(r'^(ENVO)?:?([0-9]+)$', term)
+        if match:
+            if (match.group(2) and not match.group(1)) or (match.group(1) and match.group(2)):
+                term = f'ENVO_{match.group(2)}'
+            elif not match.group(2):
+                return None
+
+            TERM_URI = f"{ENVO_URI}{term}"
+            term_data = json.loads(make_request(TERM_URI))
+
+            return term_data['label']
+
+    return(term)
 
 def is_complete(local_file):
     """
@@ -175,25 +222,33 @@ def is_complete(local_file):
     return state
 
 
-def query_biosample(biosample_acc, xml_dir):
+def query_biosample(biosample_acc, xml_dir, biosample_mapping):
     """
     Queries NCBI eutils for biosample metadata - EBI seems to be missing some entries which are present at the NCBI
 
     Required parameters:
         biosample_id(str): Biosample accession
+        xml_dir(pathlib::Path): Path to biosample xmls
+        biosample_mapping(dict): mapping of biosample id to NCBI internal ID
+
 
     Returns:
         metadata(dict): Parsed metadata values
+        biosample_mapping(dict): biosample_mapping, possibly updated
     """
 
-    fields = ["strain", "culture_collection", "collection_date", "geo_loc_name", "host", "isolation_source"]
+    fields = ["title", "strain", "culture_collection", "collection_date", "geographic location (region and locality)", "geo_loc_name",
+               "lat_lon", "host", "isolation_source", "env_broad_scale", "env_local_scale"]
 
     metadata = dict.fromkeys(fields)
 
-    # eutils does not allow direct querying with the biosample accession - we first need to look up the ID
-    uri = f"https://eutils.ncbi.nlm.nih.gov//entrez/eutils/esearch.fcgi?db=biosample&term={biosample_acc}&format=json"
-    biosample_data = json.loads(make_request(uri))
-    biosample_id = biosample_data["esearchresult"]["idlist"][0]
+    biosample_id = biosample_mapping.get(biosample_acc)
+    if not biosample_id:
+        # eutils does not allow direct querying with the biosample accession - we first need to look up the ID
+        uri = f"https://eutils.ncbi.nlm.nih.gov//entrez/eutils/esearch.fcgi?db=biosample&term={biosample_acc}&format=json"
+        biosample_data = json.loads(make_request(uri))
+        biosample_id = biosample_data["esearchresult"]["idlist"][0]
+        biosample_mapping[biosample_acc] = biosample_id
 
     local_file = xml_dir / f"{biosample_id}.xml"
     # XML files are cached locally to ensure we can get a full set by rerunning due to vagaries of web services...
@@ -210,8 +265,11 @@ def query_biosample(biosample_acc, xml_dir):
     if error:
         print(f"{biosample_id} error status: {error[0].text}")
     else:
-        query = ".//Biosample/@submission_date"
-        metadata['submission_date'] = get_xpath(tree, query)
+        query = "//BioSample/@submission_date"
+        sub_date = tree.xpath(query)
+        if sub_date:
+            sub_date = datetime.strptime(tree.xpath(query)[0], '%Y-%m-%dT%H:%M:%S.%f')
+        metadata['submission_date'] = sub_date
 
         for field in fields:
             # some field names may be in attribute_name or harmonized_name attributes
@@ -224,23 +282,21 @@ def query_biosample(biosample_acc, xml_dir):
                 query = f".//Attributes/Attribute[@harmonized_name='{field}']"
                 metadata[field] = get_xpath(tree, query)
 
-        if not metadata['geo_loc_name']:
-            # we have some misformed tags...in our own submissions...oops...
-            query = ".//Attributes/Attribute[@attribute_name='geographic location (region and locality']"
-            metadata['geo_loc_name'] = get_xpath(tree, query)
+    return metadata, biosample_mapping
 
-    return metadata
-
-def extract_metadata(genome, local_xml, xml_dir):
+def extract_metadata(genome, local_xml, xml_dir, biosample_mapping):
     """
     Extracts some metadata from the xml file and also via query_biosample
     
     Required parameters: 
-        local_xml(pathlib::Path) - Path to local xml file for assembly
-        xml_dir(pathlib::Path) - Path to store biosample xml file
+        genome: (pathlib:Path): Path to genome record
+        local_xml(pathlib::Path): Path to local xml file for assembly
+        xml_dir(pathlib::Path): Path to store biosample xml file
+        biosample_mapping(dict): Mapping of biosample_ids to NCBI internal IDs
     
     Returns:
         metadata(dict) - dictionary of collected values
+        biosample_mapping(dict) - mapping of biosample id to internal NCBI id
     """
 
     tree = etree.parse(local_xml)
@@ -260,13 +316,13 @@ def extract_metadata(genome, local_xml, xml_dir):
         if len(tags):
             metadata['biosample_id'] = tags[0].text
 
-    biosample_metadata = query_biosample(metadata['biosample_id'], xml_dir)
-    metadata = metadata | biosample_metadata
+    biosample_metadata, biosample_mapping = query_biosample(metadata['biosample_id'], xml_dir, biosample_mapping)
+    metadata = biosample_metadata | metadata
 
     # add additional metadate from genome record
     metadata = extract_embl_metadata(metadata, genome)
 
-    return metadata
+    return metadata, biosample_mapping
 
 def extract_embl_metadata(metadata, genome):
     """
@@ -280,12 +336,12 @@ def extract_embl_metadata(metadata, genome):
         metadata(dict): metadata dictionary
     """
 
-    # 
     if genome.stat().st_size > 20: # size of an empty gzipped record
         with gzip.open(genome, "rt") as embl_fh:
             record = list(SeqIO.parse(embl_fh, format="embl"))[0]
 
-            metadata["title"] = clean_description(record.description)
+            if not metadata['title']:
+                metadata["title"] = clean_description(record.description)
 
             if not metadata["isolation_source"]:
                 for feature in record.features:
@@ -367,23 +423,30 @@ def main():
     metadata_list = []
 
     # Locations for storing various data types
-    ena_xml_dir = Path(__file__).parents[1] / Path("data/full/xml/ena")
-    biosample_xml_dir = Path(__file__).parents[1] / Path("data/full/xml/biosample")
+    ena_metadata_dir = Path(__file__).parents[1] / Path("data/full/metadata/ena")
+    biosample_metadata_dir = Path(__file__).parents[1] / Path("data/full/metadata/biosample")
     genome_dir = Path(__file__).parents[1] / Path("data/full/genomes")
     fasta_dir = Path(__file__).parents[1] / Path("data/full/fasta")
     blast_dir = Path(__file__).parents[1] / Path("data/full/blast_db")
     output_dir = Path(__file__).parents[1] / Path("data/full/outputs")
+    biosample_mapping_file = biosample_metadata_dir / 'biosamples.json'
 
-    for data_dir in (ena_xml_dir, biosample_xml_dir, genome_dir, fasta_dir, blast_dir, output_dir):
+    for data_dir in (ena_metadata_dir, biosample_metadata_dir, genome_dir, fasta_dir, blast_dir, output_dir):
         data_dir.mkdir(exist_ok=True, parents=True)
 
     # Obtain total list of assemblies available
     genome_info = search_available()
 
+    # Read biosample ID mapping if it exists, otherwise create empty dict for it....
+    biosample_mapping = {}
+    if biosample_mapping_file.exists():
+        with open(biosample_mapping_file, 'r', encoding='UTF-8') as fh:
+            biosample_mapping = json.load(fh)
+
     for assembly in tqdm(genome_info, desc="Download", leave=None):
 
         accession = assembly.get("accession")
-        local_ena_xml = ena_xml_dir / Path(f"{accession}.xml")
+        local_ena_xml = ena_metadata_dir / Path(f"{accession}.xml")
         local_genome = genome_dir / Path(f"{accession}.embl.gz")
 
         # Download SRA assembly XML...
@@ -395,7 +458,7 @@ def main():
             ok = download_assembly(accession, local_genome)
             if ok:
                 # Collect some metadata
-                metadata = extract_metadata(local_genome, local_ena_xml, biosample_xml_dir)
+                metadata, biosample_mapping = extract_metadata(local_genome, local_ena_xml, biosample_metadata_dir, biosample_mapping)
                 metadata['accession'] = accession
 
                 scaffolds = fasta_convert(accession, genome_dir, fasta_dir)
@@ -404,20 +467,35 @@ def main():
             else:
                 print(f"{accession} could not be successfully downloaded")
 
+    with open(biosample_mapping_file, 'w', encoding='UTF-8') as out_fh:
+        json.dump(biosample_mapping, out_fh)
+
     summary = pd.DataFrame(metadata_list)
-    date = datetime.today().strftime("%d-%m-%Y")
-    outfile = f"{species_name.replace(' ', '_')}_complete_genomes_{date}.txt"
     summary = summary[summary.scaffolds != 0]
 
     # remove the various different ways people provide metadata without providing metadata...
-    for phrase in ["[Nn]ot applicable", "NA", "missing", "[Uu]nknown", "[Nn]ot collected"]:
+    for phrase in ["[Nn]ot [Aa]pplicable", "NA", "missing", "[Uu]nknown", "[Nn]ot collected"]:
         summary.replace(phrase, "", regex=True, inplace=True)
 
-    cols = ["accession", "study_id", "biosample_id", "strain", "title",
-            "scaffolds", "geo_loc_name", "host", "isolation_source", 
-            "culture_collection", "collection_date", "submission_date"]
+    # Look up any ENVO terms which are used to provide environmental metadata
+    for field in ["isolation_source", "env_broad_scale", "env_local_scale"]:
+        summary[field] = summary.apply(lambda x: envo_lookup(x[field]), axis=1)
 
+    summary['location'] = summary.apply(lambda x: merge_fields(x["geographic location (region and locality)"], x["geo_loc_name"]), axis=1)
+    summary['env_context'] = summary.apply(lambda x: merge_fields(x["env_broad_scale"], x["env_local_scale"]), axis=1)
+    summary.drop(["geographic location (region and locality)", "geo_loc_name", "env_broad_scale", "env_local_scale"], axis=1, inplace=True)
+
+    cols = ["accession", "study_id", "biosample_id", "title", "strain", "culture_collection",
+            "host", "isolation_source", "env_context", "location", "collection_date", "scaffolds"]
     summary = summary[cols]
+
+    summary.rename({'accession': 'Accession', 'study_id': 'Study ID', 'biosample_id': 'Biosample ID', 'title': 'Title',
+                    'strain': 'Strain', 'culture_collection': 'Culture collection', 'host': 'Host', 
+                    'isolation_source': 'Isolation source', 'env_context': 'Environmental context', 
+                    'location': 'Location', 'collection_date': 'Collection date', 'scaffolds': 'Scaffolds' }, axis=1, inplace=True)
+
+    date = datetime.today().strftime("%d-%m-%Y")
+    outfile = f"{species_name.replace(' ', '_')}_complete_genomes_{date}.txt"
     summary.to_csv(outfile, sep="\t", index=False, header=True)
 
 if __name__ == "__main__":
