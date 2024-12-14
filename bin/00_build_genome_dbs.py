@@ -5,6 +5,7 @@ Creates a database of all 'complete' genome sequences for a TAXID, reformats
 them to fasta, while capturing metadata from biosample and the genome record
 """
 
+import argparse
 import gzip
 from pathlib import Path
 from datetime import datetime
@@ -21,6 +22,7 @@ from common import (
     get_taxa_name,
     clean_description,
     make_request,
+    blast_index
 )
 
 NCBI_TAXID = "1423"
@@ -343,12 +345,17 @@ def extract_embl_metadata(metadata, genome):
             if not metadata['title']:
                 metadata["title"] = clean_description(record.description)
 
-            if not metadata["isolation_source"]:
+            if not metadata["isolation_source"] or not metadata["strain"]:
                 for feature in record.features:
                     if feature.type == "source":
                         source = feature.qualifiers.get("isolation_source")
                         if source is not None:
                             metadata["isolation_source"] = source[0]
+
+                        isolate = feature.qualifiers.get("isolate")
+                        if isolate is not None and not metadata["strain"] :
+                            metadata["strain"] = isolate[0]
+
                         break
 
     return metadata
@@ -396,29 +403,42 @@ def fasta_convert(accession, genome_dir, fasta_dir):
         fasta_dir(Path): Path to fasta directory
 
     Returns:
-        None
+        scaffolds(int): number of scaffolds in assembly
+        seq_ids(list): list of sequence ids in assembly
     """
 
     records = []
+    seq_ids = []
+
     genome = genome_dir / f"{accession}.embl.gz"
 
     fasta_path = fasta_dir / f"{accession}.fasta"
 
     with gzip.open(genome, "rt") as embl_fh:
         for record in SeqIO.parse(embl_fh, format="embl"):
+            seq_ids.append(record.id)
 
-            record.id = f"lcl|{record.id}"
+            record.id = f"lcl|{accession}|{record.id}"
             records.append(record)
 
     if records and not fasta_path.exists():  # for empty embl records from bad accessions
         with open(fasta_path, "w", encoding='UTF-8') as fasta_fh:
             SeqIO.write(records, fasta_fh, format="fasta")
 
-    return len(records)
+    return len(records), seq_ids
 
 
 def main():
     """Main process"""
+
+
+    parser = argparse.ArgumentParser(
+        prog = __file__, 
+        description="Downloads, fasta converts and optionally blast indexes genome records for organism"
+    )
+    parser.add_argument('-b', '--blast', required=False, help="Generate blast index")
+    args = parser.parse_args()
+
     species_name = get_taxa_name(NCBI_TAXID)
     metadata_list = []
 
@@ -430,6 +450,7 @@ def main():
     blast_dir = Path(__file__).parents[1] / Path("data/full/blast_db")
     output_dir = Path(__file__).parents[1] / Path("data/full/outputs")
     biosample_mapping_file = biosample_metadata_dir / 'biosamples.json'
+    id_mapping_file = Path(__file__).parents[1] / Path("data/full/id_mapping.json")
 
     for data_dir in (ena_metadata_dir, biosample_metadata_dir, genome_dir, fasta_dir, blast_dir, output_dir):
         data_dir.mkdir(exist_ok=True, parents=True)
@@ -437,8 +458,12 @@ def main():
     # Obtain total list of assemblies available
     genome_info = search_available()
 
+    # Mapping of seq ids -> GCA number/strain name
+    id_mapping = {}
+
     # Read biosample ID mapping if it exists, otherwise create empty dict for it....
     biosample_mapping = {}
+
     if biosample_mapping_file.exists():
         with open(biosample_mapping_file, 'r', encoding='UTF-8') as fh:
             biosample_mapping = json.load(fh)
@@ -460,15 +485,25 @@ def main():
                 # Collect some metadata
                 metadata, biosample_mapping = extract_metadata(local_genome, local_ena_xml, biosample_metadata_dir, biosample_mapping)
                 metadata['accession'] = accession
-
-                scaffolds = fasta_convert(accession, genome_dir, fasta_dir)
+                scaffolds, seq_ids = fasta_convert(accession, genome_dir, fasta_dir)
                 metadata['scaffolds'] = scaffolds
                 metadata_list.append(metadata)
+                for seq_id in seq_ids:
+                    id_mapping[seq_id] = {
+                        'accession': accession,
+                        'strain': metadata['strain']
+                    }
             else:
                 print(f"{accession} could not be successfully downloaded")
 
+    if args.blast:
+        blast_index(fasta_dir, blast_dir, species_name, NCBI_TAXID)
+
     with open(biosample_mapping_file, 'w', encoding='UTF-8') as out_fh:
         json.dump(biosample_mapping, out_fh)
+
+    with open(id_mapping_file, 'w', encoding='UTF-8') as out_fh:
+        json.dump(id_mapping, out_fh)
 
     summary = pd.DataFrame(metadata_list)
     summary = summary[summary.scaffolds != 0]
