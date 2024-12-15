@@ -51,9 +51,9 @@ bakta --db databases/bakta/db \
       --prefix {wildcards.genome} \
       --genus Bacillus \
       --species subtilis \
-      --compliant \
       --threads 8 \
       --force \
+      --keep-contig-headers \
       --output data/full/annotations/{wildcards.genome} \
       {input.fasta} \
       > {log} 2>&1
