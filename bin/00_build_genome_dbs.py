@@ -411,6 +411,8 @@ def fasta_convert(accession, genome_dir, fasta_dir):
     seq_ids = []
 
     genome = genome_dir / f"{accession}.embl.gz"
+    fasta_dir = fasta_dir / "genomes"
+    fasta_dir.mkdir(exist_ok=True)
 
     fasta_path = fasta_dir / f"{accession}.fasta"
 
@@ -436,7 +438,7 @@ def main():
         prog = __file__, 
         description="Downloads, fasta converts and optionally blast indexes genome records for organism"
     )
-    parser.add_argument('-b', '--blast', required=False, help="Generate blast index")
+    parser.add_argument('-b', '--blast', action='store_true', required=False, help="Generate blast index")
     args = parser.parse_args()
 
     species_name = get_taxa_name(NCBI_TAXID)
