@@ -72,23 +72,38 @@ def get_taxa_name(ncbi_taxid):
 
     return species_name
 
-def blast_index(fasta_dir, blast_dir, species, ncbi_taxid):
+def blast_index(fasta_dir, blast_dir, species, ncbi_taxid, index_type):
 
     """
-    Creates a blast index for each fasta file contained within directory
+    Creates a blast index for each genome fasta file contained within directory
 
     Required parameters:
         fasta_dir(Path): Location of fasta files
         blast_dir(Path): Location of blast database
         species(str): Species name
         ncbi_taxid(str): NCBI taxonomy ID
+        index_type(str) : index type (nucl/prot)
 
     Returns:
         None
     """
 
+    species_name=species.replace(' ','_')
+
+    if index_type not in ['nucl','prot']:
+        raise ValueError(f'Invalid index type provided ({index_type})')
+
     accessions = []
     db_stats = {'count': 0, 'length': 0}
+
+    if index_type == 'nucl':
+        blast_dir = blast_dir / 'genomes'
+        title = 'TITLE {species} complete genomes'
+        meta_db = f'{blast_dir}/{species_name}_complete_genomes.nal'
+    else:
+        blast_dir = blast_dir / 'proteins'
+        title  =  f"TITLE {species} complete proteome"
+        meta_db = f'{blast_dir}/{species_name}_proteins.pal'
 
     fasta_files = fasta_dir.glob('*.fasta')
     for fasta_file in tqdm(fasta_files, desc = 'Blast index'):
@@ -101,7 +116,7 @@ def blast_index(fasta_dir, blast_dir, species, ncbi_taxid):
         accession = fasta_file.name.replace('.fasta','')
         accessions.append(accession)
 
-        cmd = ["makeblastdb",  "-in",  fasta_file, "-dbtype", "nucl", "-out", blast_dir / Path(accession),
+        cmd = ["makeblastdb",  "-in",  fasta_file, "-dbtype", index_type, "-out", blast_dir / Path(accession),
                "-taxid", ncbi_taxid, "-title", accession]
         try:
             subprocess.run(cmd, check = True, capture_output = True)
@@ -111,14 +126,13 @@ def blast_index(fasta_dir, blast_dir, species, ncbi_taxid):
     accessions = ' '.join([f"{a}" for a in accessions])
 
     index = f'''\
-TITLE {species} complete genomes
+{title} 
 DBLIST {accessions}
 NSEQ {db_stats['count']}
 LENGTH {db_stats['length']}
 '''.strip()
 
-    species_name=species.replace(' ','_')
-    with open(f'{blast_dir}/{species_name}_complete_genomes.nal', 'w', encoding='UTF-8') as fh:
+    with open(meta_db, 'w', encoding='UTF-8') as fh:
         fh.writelines(index)
 
 def clean_description(description):
