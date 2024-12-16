@@ -52,10 +52,10 @@ def get_spanned_genes(assembly_accession, seq_accession, start, end):
     gff_file = BAKTA_DIR / assembly_accession / f"{assembly_accession}.gff3"
     gff_cols=('seqid', 'source', 'type', 'start', 'end', 'score', 'strand',
               'phase', 'attributes')
-    gff = pd.read_csv(gff_file, sep="\t", comment='#', header=0, names=gff_cols, low_memory=False)
+    gff_df = pd.read_csv(gff_file, sep="\t", comment='#', header=0, names=gff_cols, low_memory=False)
 
-    gff = gff[(gff['seqid'].str.contains(seq_accession)) & (gff['type'] == 'CDS') &
-              (gff['start'] >= int(start)) & (gff['end'] <= int(end))]
+    gff = gff_df[(gff_df['seqid'].str.contains(seq_accession)) & (gff_df['type'] == 'CDS') &
+              (gff_df['start'] >= int(start)) & (gff_df['end'] <= int(end))]
 
     gene_re = re.compile(r'gene=([a-zA-Z0-9]*)$')
 
@@ -77,7 +77,6 @@ def parse_blast(record, mapping):
     Returns:
         None
     """
-    out_hits = []
 
     with record.open() as fh:
         with open('annotated.out','w', encoding='UTF-8') as out_fh:
@@ -133,8 +132,10 @@ def main():
         description="Reports genes which are spanned by a genomic blast hit"
     )
     parser.add_argument('-b', '--blast', required=True, help="Path to blast record")
-    #parser.add_argument('-g', '--bakta', required = Treue, help='Path to bakta gff3 annotation directory')
-    parser.add_argument('-m', '--mapping', required=True, help="Path to id mapping json file")
+    parser.add_argument('-g', '--gff', required=False, help='Path to feather of gff3 data',
+        default='data/full/annotations/gff_annotations.feather')
+    parser.add_argument('-m', '--mapping', required=False, help="Path to id mapping json file",
+        default='data/full/id_mapping.json')
 
     args = parser.parse_args()
     result = Path(args.blast)
@@ -142,6 +143,7 @@ def main():
     with open(args.mapping, 'r', encoding='UTF-8') as fh:
         mapping = json.load(fh)
 
+    #gff_df = pd.read_feather(args.gff)
 
     parse_blast(result, mapping)
 
