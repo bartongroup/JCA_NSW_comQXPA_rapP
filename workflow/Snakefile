@@ -1,11 +1,22 @@
 from pathlib import Path
+import pandas as pd
+from Bio import SeqIO
+from json import load
+
+from common import (
+    blast_index,
+    get_taxa_name
+)
 
 busco_lineage = 'bacillales_odb10'
 gtdb_version = '220'
 
 cwd = Path('.').resolve()
 
-GENOME_FILES = Path('data/full/fasta').glob('*')
+NCBI_TAXID = "1423"
+SPECIES = get_taxa_name(NCBI_TAXID)
+
+GENOME_FILES = Path('data/full/fasta/genomes').glob('*')
 GENOMES = [genome.stem for genome in GENOME_FILES]
 BAKTA_DB_FILES = [ 'antifam.h3f', 'antifam.h3i', 'antifam.h3m', 'antifam.h3p', 'bakta.db',
         'expert-protein-sequences.dmnd', 'ncRNA-genes.i1f', 'ncRNA-genes.i1i', 'ncRNA-genes.i1m',
@@ -17,6 +28,9 @@ BAKTA_DB = expand('databases/bakta/db/{file}', file = BAKTA_DB_FILES)
 BAKTA_SUFFIXES = ['tsv', 'gff3', 'gbff', 'embl', 'fna', 'ffn', 'faa', 
     'hypotheticals.tsv', 'hypotheticals.faa', 'json', 'txt', 'png', 'svg']
 BAKTA_ANNOTS = expand('data/full/annotations/{genome}/{genome}.{suffix}', genome = GENOMES, suffix = BAKTA_SUFFIXES)
+PROTEIN_FASTA = expand('data/full/fasta/proteins/{genome}.fasta', genome = GENOMES)
+PROTEIN_BLAST_SUFFIXES = ['pdb','phr','pin','pjs','pot','psq','ptf','pto']
+PROTEIN_BLAST_DB = expand('data/full/blast_db/proteins/{genome}.{suffix}', genome = GENOMES, suffix = PROTEIN_BLAST_SUFFIXES)
 BUSCO_DATA = expand('databases/busco/lineages/{busco_lineage}/dataset.cfg', busco_lineage = busco_lineage)
 BUSCOS = expand('data/full/busco/{genome}/run_{lineage}/full_table.tsv', genome = GENOMES, lineage = busco_lineage)
 SKANI = ["results/skani/skani.out"]
@@ -26,8 +40,16 @@ SKANI_PLOT = ["results/skani/skani.pdf", "results/gtdbtk/classifications.txt"]
 GTDB = ['databases/gtdbtk/taxonomy/gtdb_taxonomy.tsv']
 GTDBTK = ['results/gtdbtk/gtdbtk.bac120.summary.tsv']
 
+
+with open('data/full/id_mapping.json') as fh:
+    json_map = load(fh)
+
+strain_map = {}
+for k,v in json_map.items():
+    strain_map[v['accession']] = v['strain']
+
 rule all:
-    input: BUSCOS + SKANI_PLOT + GTDBTK
+    input: PROTEIN_BLAST_DB + BUSCOS + SKANI_PLOT + GTDBTK
 
 rule bakta_db:
     output: BAKTA_DB
@@ -37,7 +59,7 @@ rule bakta_db:
 
 rule bakta:
     input: 
-        fasta = 'data/full/fasta/{genome}.fasta', 
+        fasta = 'data/full/fasta/genomes/{genome}.fasta', 
         db = BAKTA_DB
     output: 'data/full/annotations/{genome}/{genome}.tsv', 'data/full/annotations/{genome}/{genome}.gff3', 'data/full/annotations/{genome}/{genome}.gbff',
             'data/full/annotations/{genome}/{genome}.embl', 'data/full/annotations/{genome}/{genome}.fna', 'data/full/annotations/{genome}/{genome}.ffn',
@@ -59,6 +81,41 @@ bakta --db databases/bakta/db \
       > {log} 2>&1
     """
 
+rule bakta_add_protein_metadata:
+    input: 
+        fasta = 'data/full/annotations/{genome}/{genome}.faa',
+        gff = 'data/full/annotations/{genome}/{genome}.gff3'
+    output: 
+        fasta = 'data/full/fasta/proteins/{genome}.fasta'
+    params:
+        strain_map = strain_map
+    log: 'workflow/logs/bakta_metadata.{genome}.log'
+    run: 
+        out_records = []
+
+        with open(input.fasta, 'r') as in_fh:
+            accession = Path(input.fasta).name.replace('.faa','')
+            for record in SeqIO.parse(in_fh, 'fasta'):
+
+                seq_id = record.id
+
+                record.id = "lcl|" + accession + '|' + seq_id
+                strain = strain_map[accession] or 'Unknown'
+                record.description = "Strain: " + strain + '; ' + record.description
+
+                out_records.append(record)
+        
+        with open(output.fasta, 'w') as out_fh:
+            SeqIO.write(out_records, out_fh, 'fasta')
+
+rule bakta_proteins_blast_index:
+    input: PROTEIN_FASTA
+    output: PROTEIN_BLAST_DB
+    log: 'workflow/logs/bakta_protein_blat_index.log'
+    run: 
+        blast_index(Path('data/full/fasta/proteins'), Path('data/full/blast_db/'),
+                    SPECIES, NCBI_TAXID, 'prot')
+
 rule busco_lineage:
     output: BUSCO_DATA
     params: 
@@ -79,7 +136,7 @@ skani triangle -t 24 \
     --detailed \
     --full-matrix \
     --diagonal \
-    data/full/fasta/* \
+    data/full/fasta/genomes/* \
     > {log} 2>&1
 """
 
@@ -104,6 +161,7 @@ busco -f -l {params.lineage} \
       -q \
       > {log} 2>&1
     """
+
 
 rule gtdb:
     output: GTDB
@@ -145,7 +203,7 @@ rule skani_plot:
     conda: "envs/R.yaml"
     log: "workflow/logs/skani_plot.log"
     shell:"""
-bin/ANI.R -f data/full/fasta \
+bin/ANI.R -f data/full/fasta/genomes \
           -g results/gtdbtk \
           -s results/skani/skani.out \
           -o results/skani \
