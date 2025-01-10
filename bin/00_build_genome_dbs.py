@@ -153,9 +153,10 @@ def envo_lookup(term):
             TERM_URI = f"{ENVO_URI}{term}"
             term_data = json.loads(make_request(TERM_URI))
 
-            return term_data['label']
+            if 'label' in term_data.keys():
+                return term_data['label']
 
-    return(term)
+    return term
 
 def is_complete(local_file):
     """
@@ -499,7 +500,7 @@ def main():
                 print(f"{accession} could not be successfully downloaded")
 
     if args.blast:
-        blast_index(fasta_dir, blast_dir, species_name, NCBI_TAXID)
+        blast_index(fasta_dir, blast_dir, species_name, NCBI_TAXID, 'nucl')
 
     with open(biosample_mapping_file, 'w', encoding='UTF-8') as out_fh:
         json.dump(biosample_mapping, out_fh)
@@ -532,7 +533,7 @@ def main():
                     'location': 'Location', 'collection_date': 'Collection date', 'scaffolds': 'Scaffolds' }, axis=1, inplace=True)
 
     date = datetime.today().strftime("%d-%m-%Y")
-    outfile = f"{species_name.replace(' ', '_')}_complete_genomes_{date}.txt"
+    outfile = f"data/full/{species_name.replace(' ', '_')}_complete_genomes_{date}.txt"
     summary.to_csv(outfile, sep="\t", index=False, header=True)
 
 if __name__ == "__main__":
