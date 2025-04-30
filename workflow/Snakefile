@@ -46,7 +46,8 @@ with open('data/full/id_mapping.json') as fh:
 
 strain_map = {}
 for k,v in json_map.items():
-    strain_map[v['accession']] = v['strain']
+    if v['strain'] is not None:
+        strain_map[v['accession']] = v['strain']
 
 rule all:
     input: PROTEIN_BLAST_DB + BUSCOS + SKANI_PLOT + GTDBTK
@@ -100,7 +101,7 @@ rule bakta_add_protein_metadata:
                 seq_id = record.id
 
                 record.id = "lcl|" + accession + '|' + seq_id
-                strain = strain_map[accession] or 'Unknown'
+                strain = strain_map.get(accession, 'Unknown')
                 record.description = "Strain: " + strain + '; ' + record.description
 
                 out_records.append(record)

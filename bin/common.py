@@ -117,9 +117,9 @@ def blast_index(fasta_dir, blast_dir, species, ncbi_taxid, index_type):
         accessions.append(accession)
 
         cmd = ["makeblastdb",  "-in",  fasta_file, "-dbtype", index_type, "-out", blast_dir / Path(accession),
-               "-taxid", ncbi_taxid, "-title", accession]
+               "-taxid", str(ncbi_taxid), "-title", accession]
         try:
-            subprocess.run(cmd, check = True, capture_output = True)
+            res = subprocess.run(cmd, check = True, capture_output = False)
         except subprocess.CalledProcessError as e:
             print(f"Index failed: {accession} - {e}")
 
