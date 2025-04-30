@@ -1,9 +1,9 @@
-name: bakta 
+name: gtdbtk
 channels:
   - bioconda
   - conda-forge
 dependencies:
-  - gtdbtk==2.4.0
+  - gtdbtk==2.4.1
   - beautifulsoup4
   - requests
   - biopython
