@@ -1,12 +1,19 @@
 #!/usr/bin/env python
 
+#$ -jc long
+#$ -j y
+#$ -o job_logs/$JOB_NAME.$JOB_ID
+#$ -cwd
+#$ -N build_genome_dbs.py
+
 """
 Creates a database of all 'complete' genome sequences for a TAXID, reformats
 them to fasta, while capturing metadata from biosample and the genome record
 """
 
-import argparse
+import sys
 import gzip
+import argparse
 from pathlib import Path
 from datetime import datetime
 import json
@@ -18,6 +25,7 @@ from tqdm import tqdm
 import pandas as pd
 import requests
 
+sys.path.append('bin')
 from common import (
     get_taxa_name,
     clean_description,

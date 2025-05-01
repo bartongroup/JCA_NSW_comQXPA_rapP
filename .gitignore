@@ -37,3 +37,7 @@ alignments
 NCIB3610
 databases
 data
+
+# pixi environments
+.pixi
+*.egg-info
