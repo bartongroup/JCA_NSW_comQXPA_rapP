@@ -1,7 +1,6 @@
-name: R
+name: skani
 channels:
   - bioconda
   - conda-forge
 dependencies:
-  - r-base=4.4.1
-  - r-renv
+  - skani=0.2.2

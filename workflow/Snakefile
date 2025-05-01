@@ -73,7 +73,7 @@ bakta --db databases/bakta/db \
       --prefix {wildcards.genome} \
       --genus Bacillus \
       --species subtilis \
-      --threads 8 \
+      --threads 2 \
       --force \
       --keep-contig-headers \
       --output data/full/annotations/{wildcards.genome} \
@@ -127,6 +127,7 @@ rule busco_lineage:
 rule skani:
     input: GENOME_FILES
     output: "results/skani/skani.out"
+    conda: 'envs/skani.yaml'
     log: 'workflow/logs/skani.log'
     shell: """
 skani triangle -t 24 \
