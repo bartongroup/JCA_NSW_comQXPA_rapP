@@ -6,13 +6,19 @@ responsible for them, so where possible these need to be replaced in the
 database
 """
 
-import pandas as pd
-from Bio import SeqIO
+# TODO: This is a temporary script required to add the Danish sequences to the dataset
+# but needs to be removed once these are in the public databases and can be picked up 
+# by the initial automated database build
+
 from pathlib import Path
 from shutil import copyfile
-from tqdm import tqdm
 
-from build_genome_dbs import blast_index
+import pandas as pd
+from Bio import SeqIO
+
+from common import blast_index
+
+NCBI_TAXID = 1423
 
 def replace_genome(fasta_dir, blast_dir, accession, name):
 
@@ -38,44 +44,49 @@ def replace_genome(fasta_dir, blast_dir, accession, name):
 
     for suffix in blast_suffixes:
 
-        blast_file = blast_dir / (accession + suffix)
+        blast_file = blast_dir / 'genomes' / (accession + suffix)
 
         if blast_file.exists():
             blast_file.unlink()
         else:
             print(f'{blast_file} not found')
 
-    copyfile(new_genome, fasta_dir / name)
+    copyfile(new_genome, fasta_file)
 
 
 def main():
 
-    fasta_dir  = Path(__file__).parents[1] / Path('fasta')
-    blast_dir  = Path(__file__).parents[1] / Path('blast_db')
+    """ main function """
+
+    fasta_dir  = Path(__file__).parents[1] / Path('data/full/fasta/genomes')
+    blast_dir  = Path(__file__).parents[1] / Path('data/full/blast_db/')
     danish_dir =  Path(__file__).parents[1] / Path('Danish_sequences')
 
-    excel_files = list(Path('.').glob('[!.]*.xlsx'))
-    genome_df = pd.read_excel(excel_files[-1], dtype={'isolate': str})
+    metadata_files = list(Path('data/full/').glob('Bacillus_subtilis_complete_genome*.txt'))
+    metadata_file = metadata_files[-1]
+    genome_df = pd.read_csv(metadata_file, dtype={'Strain': 'str'}, sep="\t")
+    # don't know why this isn't being imported as a str given the dtype in the above line
+    genome_df['Strain'] = genome_df['Strain'].apply(str)
 
-    genome_df['munged_isolate']=genome_df['isolate'].apply(lambda x: x.replace(' ',''))
+    genome_df['munged_isolate']=genome_df['Strain'].apply(lambda x: x.replace(' ',''))
     match_count = 0
-    novel_genomes = list()
+    novel_genomes = []
 
-    for genome in Path('Danish_sequences').glob('Bacillus_subtilis_*.fasta'):
+    for genome in danish_dir.glob('Bacillus_subtilis_*.fasta'):
         isolate = genome.name.replace('Bacillus_subtilis_','').replace('.fasta','')
 
         matched = genome_df[genome_df.munged_isolate.str.contains(f"{isolate}$", regex = True)]
 
         if not matched.empty:
             match_count+=1
-            accession = matched['accession'].values[0]
-            ena_isolate = matched['isolate'].values[0]
+            accession = matched['Accession'].values[0]
+            ena_isolate = matched['Strain'].values[0]
             name = genome.name
             stem = genome.stem
 
             replace_genome(fasta_dir, blast_dir, accession, name)
-            genome_df.loc[genome_df["isolate"]==ena_isolate, 'accession'] = stem
-        else: 
+            genome_df.loc[genome_df["Strain"]==ena_isolate, 'Danish ID'] = stem
+        else:
             novel_genomes.append(name)
 
     novel_genomes = list(set(novel_genomes))
@@ -84,7 +95,7 @@ def main():
 
         stem = Path(genome).stem
         scaffolds = 0
-        with open(danish_dir / Path(genome), 'r') as fh:
+        with open(danish_dir / Path(genome), 'r', encoding='UTF-8') as fh:
             for record in SeqIO.parse(fh, 'fasta'):
                 scaffolds = scaffolds + 1
 
@@ -92,20 +103,20 @@ def main():
 
         # add details to genomes dataframe
         genome_dat = {
-            'accession': stem,
-            'isolate':   stem,
-            'source':    None,
-            'scaffolds': scaffolds
+            'Accession': stem,
+            'Danish ID': stem,
+            'Strain':   stem,
+            'Isolation source': None,
+            'Scaffolds': scaffolds
         }
         new_df = pd.DataFrame(genome_dat, index = [0])
         genome_df = pd.concat([genome_df, new_df])
 
     # Blast index the full dataset again...
-    blast_index(fasta_dir, blast_dir, 'Bacillus subtilis')
+    blast_index(fasta_dir, blast_dir, species = 'Bacillus subtilis', ncbi_taxid = NCBI_TAXID, index_type = 'nucl')
+    metadata_file = str(metadata_file).replace('.txt','_Danish_additions.txt')
     genome_df.drop(['munged_isolate'], inplace = True, axis = 1)
-    genome_df.to_excel(excel_files[-1], sheet_name = 'Complete genomes', index = False, header = True)
-    genome_df.drop(['source', 'scaffolds'], inplace = True, axis = 1)
-    genome_df.to_csv('strains.txt', sep="\t", header = True, index = False)
+    genome_df.to_csv(metadata_file, sep="\t", index = False, header = True)
 
 if __name__ == "__main__":
     main()
