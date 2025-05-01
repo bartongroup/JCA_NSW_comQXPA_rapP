@@ -132,18 +132,15 @@ def main():
         description="Reports genes which are spanned by a genomic blast hit"
     )
     parser.add_argument('-b', '--blast', required=True, help="Path to blast record")
-    parser.add_argument('-g', '--gff', required=False, help='Path to feather of gff3 data',
-        default='data/full/annotations/gff_annotations.feather')
     parser.add_argument('-m', '--mapping', required=False, help="Path to id mapping json file",
         default='data/full/id_mapping.json')
 
     args = parser.parse_args()
     result = Path(args.blast)
+    # TODO: sensible output filenaming
 
     with open(args.mapping, 'r', encoding='UTF-8') as fh:
         mapping = json.load(fh)
-
-    #gff_df = pd.read_feather(args.gff)
 
     parse_blast(result, mapping)
 
