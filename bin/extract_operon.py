@@ -1,4 +1,4 @@
-#!/bin/env python
+#!/usr/bin/env python
 
 """
 Extracts operon sequence as far as is possible based on annotated feature

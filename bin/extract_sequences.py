@@ -1,4 +1,4 @@
-#!/bin/env python
+#!/usr/bin/env python
 
 '''
 Extracts genes of interest from reannotated genomes

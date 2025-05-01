@@ -1,4 +1,4 @@
-#!/bin/env bash
+#!/usr/bin/env bash
 
 #$ -cwd
 #$ -o job_logs/$JOB_NAME.$JOB_ID

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/usr/bin/env python
 
 """
 Generates report on genes covered by a genomic blast hit

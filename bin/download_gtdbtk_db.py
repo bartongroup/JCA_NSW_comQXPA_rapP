@@ -1,4 +1,4 @@
-#!/bin/env python
+#!/usr/bin/env python
 
 """
 Downloads GTDB-TK database sections in parallel, combines and unpacks

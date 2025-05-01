@@ -1,4 +1,4 @@
-#!/bin/env python
+#!/usr/bin/env python
 
 """
 Improved versions of some of the genomes have been shared by the group

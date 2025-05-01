@@ -1,4 +1,4 @@
-#!/bin/env python 
+#!/usr/bin/env python 
 
 ''' 
 Selects genomes based upon BUSCO completion criteria

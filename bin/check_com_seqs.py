@@ -1,4 +1,4 @@
-#!/bin/env python
+#!/usr/bin/env python
 
 """
 Carries out series of pair-wise comparisons between Bacillus subtilis 168

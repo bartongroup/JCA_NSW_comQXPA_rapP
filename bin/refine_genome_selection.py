@@ -1,4 +1,4 @@
-#!/bin/env python
+#!/usr/bin/env python
 
 """
 The selection of genomes has been refined by NSW to remove duplicate

@@ -1,4 +1,4 @@
-#!/bin/env python
+#!/usr/bin/env python
 
 """
 A final round of genome refinement to remove sequences identified by 
