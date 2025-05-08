@@ -9,7 +9,7 @@ from common import (
 )
 
 busco_lineage = 'bacillales_odb10'
-gtdb_version = '220'
+gtdb_version = '226'
 
 cwd = Path('.').resolve()
 
@@ -112,7 +112,8 @@ rule bakta_add_protein_metadata:
 rule bakta_proteins_blast_index:
     input: PROTEIN_FASTA
     output: PROTEIN_BLAST_DB
-    log: 'workflow/logs/bakta_protein_blat_index.log'
+    conda: 'envs/blast.yaml'
+    log: 'workflow/logs/bakta_protein_blast_index.log'
     run: 
         blast_index(Path('data/full/fasta/proteins'), Path('data/full/blast_db/'),
                     SPECIES, NCBI_TAXID, 'prot')
@@ -189,7 +190,7 @@ rule gtdbtk:
 export GTDBTK_DATA_PATH="databases/gtdbtk"
 gtdbtk classify_wf \
         --skip_ani_screen \
-        --genome_dir data/full/fasta \
+        --genome_dir data/full/fasta/genomes \
         --out_dir results/gtdbtk/ \
         -x fasta \
         --cpus 32 \
