@@ -1,6 +1,7 @@
 name: bakta 
 channels:
-  - bioconda
   - conda-forge
+  - bioconda
 dependencies:
-  - bakta==1.11.0
+  - bakta==1.9.4
+  - biopython

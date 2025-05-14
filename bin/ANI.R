@@ -1,4 +1,4 @@
-#!/usr/usr/bin/env Rscript
+#!/usr/bin/env Rscript
 
 # Creates a heatmap of skani outputs, with associated dendrogram.
 

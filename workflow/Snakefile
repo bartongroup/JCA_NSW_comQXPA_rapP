@@ -54,7 +54,7 @@ rule all:
 
 rule bakta_db:
     output: BAKTA_DB
-    conda: 'envs/bakta.yaml'
+    conda: "envs/bakta.yaml"
     log: 'workflow/logs/bakta_db.log'
     shell: 'bakta_db download --type full -o databases/bakta > {log} 2>&1'
 
@@ -67,14 +67,14 @@ rule bakta:
             'data/full/annotations/{genome}/{genome}.faa', 'data/full/annotations/{genome}/{genome}.hypotheticals.tsv', 
             'data/full/annotations/{genome}/{genome}.hypotheticals.faa', 'data/full/annotations/{genome}/{genome}.json', 
             'data/full/annotations/{genome}/{genome}.txt', 'data/full/annotations/{genome}/{genome}.png', 'data/full/annotations/{genome}/{genome}.svg'
-    conda: 'envs/bakta.yaml'
+    conda: "envs/bakta.yaml"
     log: 'workflow/logs/bakta.{genome}.log'
     shell: """
 bakta --db databases/bakta/db \
       --prefix {wildcards.genome} \
       --genus Bacillus \
       --species subtilis \
-      --threads 2 \
+      --threads {resources.threads} \
       --force \
       --keep-contig-headers \
       --output data/full/annotations/{wildcards.genome} \
@@ -112,27 +112,35 @@ rule bakta_add_protein_metadata:
 rule bakta_proteins_blast_index:
     input: PROTEIN_FASTA
     output: PROTEIN_BLAST_DB
-    conda: 'envs/blast.yaml'
+    params:
+        species = SPECIES,
+        taxid = NCBI_TAXID
+    conda: "envs/blast.yaml"
     log: 'workflow/logs/bakta_protein_blast_index.log'
-    run: 
-        blast_index(Path('data/full/fasta/proteins'), Path('data/full/blast_db/'),
-                    SPECIES, NCBI_TAXID, 'prot')
+    shell: 'bin/blast_index.sh -f data/full/fasta/proteins \
+                               -d data/full/blast_db \
+                               -s "{params.species}" \
+                               -i {params.taxid} \
+                               -t p'
+    #run: 
+    #    blast_index(Path('data/full/fasta/proteins'), Path('data/full/blast_db/'),
+    #                SPECIES, NCBI_TAXID, 'prot')
 
 rule busco_lineage:
     output: BUSCO_DATA
     params: 
         lineage = busco_lineage
-    conda: 'envs/busco.yaml'
+    conda: "envs/busco.yaml"
     log: 'workflow/logs/busco_download.log'
     shell: 'busco --download_path databases/busco --download {params.lineage} > {log} 2>&1'
 
 rule skani:
     input: GENOME_FILES
     output: "results/skani/skani.out"
-    conda: 'envs/skani.yaml'
+    conda: "envs/skani.yaml"
     log: 'workflow/logs/skani.log'
     shell: """
-skani triangle -t 24 \
+skani triangle -t {resources.threads} \
     --slow \
     -s 50 \
     -o results/skani/skani.out \
@@ -148,7 +156,7 @@ rule busco:
         fasta = 'data/full/annotations/{genome}/{genome}.fna', 
         db = BUSCO_DATA
     output: 'data/full/busco/{genome}/run_bacillales_odb10/full_table.tsv'
-    conda: 'envs/busco.yaml'
+    conda: "envs/busco.yaml"
     params:
         lineage = busco_lineage,
         cwd = cwd
@@ -157,7 +165,7 @@ rule busco:
 busco -f -l {params.lineage} \
       --mode genome \
       -i {input.fasta} \
-      -c 8 \
+      -c {resources.threads} \
       -o data/full/busco/{wildcards.genome} \
       --offline \
       --download_path databases/busco \
@@ -193,8 +201,8 @@ gtdbtk classify_wf \
         --genome_dir data/full/fasta/genomes \
         --out_dir results/gtdbtk/ \
         -x fasta \
-        --cpus 32 \
-        --pplacer_cpus 32 \
+        --cpus {resources.threads} \
+        --pplacer_cpus {resources.threads} \
         --tmpdir $TMPDIR \
         --force \
         > {log} 2>&1

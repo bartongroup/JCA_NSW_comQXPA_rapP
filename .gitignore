@@ -37,6 +37,8 @@ alignments
 NCIB3610
 databases
 data
+drmaa_logs
+report.html
 
 # pixi environments
 .pixi
