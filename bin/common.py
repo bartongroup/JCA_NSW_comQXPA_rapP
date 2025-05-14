@@ -72,69 +72,6 @@ def get_taxa_name(ncbi_taxid):
 
     return species_name
 
-def blast_index(fasta_dir, blast_dir, species, ncbi_taxid, index_type):
-
-    """
-    Creates a blast index for each genome fasta file contained within directory
-
-    Required parameters:
-        fasta_dir(Path): Location of fasta files
-        blast_dir(Path): Location of blast database
-        species(str): Species name
-        ncbi_taxid(str): NCBI taxonomy ID
-        index_type(str) : index type (nucl/prot)
-
-    Returns:
-        None
-    """
-
-    species_name=species.replace(' ','_')
-
-    if index_type not in ['nucl','prot']:
-        raise ValueError(f'Invalid index type provided ({index_type})')
-
-    accessions = []
-    db_stats = {'count': 0, 'length': 0}
-
-    if index_type == 'nucl':
-        blast_dir = blast_dir / 'genomes'
-        title = 'TITLE {species} complete genomes'
-        meta_db = f'{blast_dir}/{species_name}_complete_genomes.nal'
-    else:
-        blast_dir = blast_dir / 'proteins'
-        title  =  f"TITLE {species} complete proteome"
-        meta_db = f'{blast_dir}/{species_name}_proteins.pal'
-
-    fasta_files = fasta_dir.glob('*.fasta')
-    for fasta_file in tqdm(fasta_files, desc = 'Blast index'):
-        with open(fasta_file, 'r', encoding='UTF-8') as fh:
-            records = SeqIO.parse(fh, format = 'fasta')
-            for record in records:
-                db_stats['count'] += 1
-                db_stats['length'] += len(record.seq)
-
-        accession = fasta_file.name.replace('.fasta','')
-        accessions.append(accession)
-
-        cmd = ["makeblastdb",  "-in",  fasta_file, "-dbtype", index_type, "-out", blast_dir / Path(accession),
-               "-taxid", str(ncbi_taxid), "-title", accession]
-        try:
-            res = subprocess.run(cmd, check = True, capture_output = False)
-        except subprocess.CalledProcessError as e:
-            print(f"Index failed: {accession} - {e}")
-
-    accessions = ' '.join([f"{a}" for a in accessions])
-
-    index = f'''\
-{title} 
-DBLIST {accessions}
-NSEQ {db_stats['count']}
-LENGTH {db_stats['length']}
-'''.strip()
-
-    with open(meta_db, 'w', encoding='UTF-8') as fh:
-        fh.writelines(index)
-
 def clean_description(description):
 
     """
