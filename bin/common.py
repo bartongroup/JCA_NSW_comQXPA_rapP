@@ -9,6 +9,7 @@ import re
 
 from Bio import SeqIO
 from lxml import etree
+import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter, Retry
 from tqdm import tqdm
@@ -110,3 +111,33 @@ def clean_strain(strain):
     strain = re.sub(r' (strain|isolate)', '', strain)
 
     return strain
+
+def combine_metadata(metadata, classifications, output):
+
+    """
+    Update metadata sheet to add GTDBTK classifications and BUSCO completeness, 
+    and add columns to indicate wheter genome should be retained ('keep') and 
+    reason[s] for exclusions
+
+    Required params: 
+        metadata(str): Path to metadata file created by 00_build_genome_dbs.py
+        classifications(str): Path to GTDBTK classification output file
+        output(str): Path to output file to create
+    
+    Returns:
+        None
+    """
+    metadata = pd.read_csv(metadata, sep="\t")
+    classifications = pd.read_csv(classifications, sep="\t")
+
+    # Add species column, and 'keep' column, set to 1 where species is subtilis
+    classifications['Species'] = classifications['classification'].map(lambda x: x.split(';')[-1].replace('s__',''))
+    classifications['Keep'] = 0
+    classifications['Exclusion criteria'] = ""
+    classifications.loc[classifications['Species' ]== "Bacillus subtilis", 'Keep'] = 1
+    classifications.loc[classifications['Species' ]!= "Bacillus subtilis", 'Exclusion criteria'] = 'GTDBTK classification'
+    classifications = classifications[['user_genome','Species', 'Keep', 'Exclusion criteria']]
+
+    metadata = pd.merge(metadata, classifications, how='inner', left_on='Accession', right_on='user_genome')
+    metadata = metadata.drop('user_genome', axis = 1)
+    metadata.to_csv(output, sep="\t", index=False)
