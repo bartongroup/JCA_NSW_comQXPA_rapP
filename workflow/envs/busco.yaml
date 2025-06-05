@@ -1,6 +1,0 @@
-name: busco
-channels:
-  - bioconda
-  - conda-forge
-dependencies:
-  - busco==5.8.3

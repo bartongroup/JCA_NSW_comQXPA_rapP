@@ -9,6 +9,7 @@ from common import (
 )
 
 busco_lineage = 'bacillales_odb10'
+busco_threshold = 98
 gtdb_version = '226'
 
 cwd = Path('.').resolve()
@@ -35,17 +36,19 @@ PROTEIN_FASTA = expand('data/full/fasta/proteins/{genome}.fasta', genome = GENOM
 PROTEIN_BLAST_SUFFIXES = ['pdb','phr','pin','pjs','pot','psq','ptf','pto']
 PROTEIN_BLAST_DB = expand('data/full/blast_db/proteins/{genome}.{suffix}', genome = GENOMES, suffix = PROTEIN_BLAST_SUFFIXES)
 
+COM_PROTEINS = expand('data/full/fasta/com_proteins/{gene}.faa', gene=['comA','comP','comQ', 'comX'])
+
 BUSCO_DATA = expand('databases/busco/lineages/{busco_lineage}/dataset.cfg', busco_lineage = busco_lineage)
 BUSCOS = expand('data/full/busco/{genome}/run_{lineage}/full_table.tsv', genome = GENOMES, lineage = busco_lineage)
 
 SKANI = ["results/skani/skani.out"]
-SKANI_PLOT = ["results/skani/skani.pdf", "results/gtdbtk/classifications.txt"]
+SKANI_PLOT = ["results/skani/skani.pdf"]
 
 # Way too many files in GTDB to list them all, so just one as a target
 GTDB = ['databases/gtdbtk/taxonomy/gtdb_taxonomy.tsv']
 GTDBTK = ['results/gtdbtk/gtdbtk.bac120.summary.tsv']
 
-CLASSIFIED_METADATA = ["data/full/Bacillus_subtilis_classified_metadata.txt"]
+CLASSIFIED_METADATA = [str(METADATA_FILE).replace('complete_genomes','metadata')]
 
 with open('data/full/id_mapping.json') as fh:
     json_map = load(fh)
@@ -56,11 +59,11 @@ for k,v in json_map.items():
         strain_map[v['accession']] = v['strain']
 
 rule all:
-    input: PROTEIN_BLAST_DB + BUSCOS + SKANI_PLOT + CLASSIFIED_METADATA
+    input: PROTEIN_BLAST_DB + BUSCOS + SKANI_PLOT + COM_PROTEINS
 
 rule bakta_db:
     output: BAKTA_DB
-    conda: "envs/bakta.yaml"
+    singularity: "docker://quay.io/biocontainers/bakta:1.11.0--pyhdfd78af_0"
     log: 'workflow/logs/bakta_db.log'
     shell: 'bakta_db download --type full -o databases/bakta > {log} 2>&1'
 
@@ -73,7 +76,7 @@ rule bakta:
             'data/full/annotations/{genome}/{genome}.faa', 'data/full/annotations/{genome}/{genome}.hypotheticals.tsv', 
             'data/full/annotations/{genome}/{genome}.hypotheticals.faa', 'data/full/annotations/{genome}/{genome}.json', 
             'data/full/annotations/{genome}/{genome}.txt', 'data/full/annotations/{genome}/{genome}.png', 'data/full/annotations/{genome}/{genome}.svg'
-    conda: "envs/bakta.yaml"
+    singularity: "docker://quay.io/biocontainers/bakta:1.11.0--pyhdfd78af_0"
     log: 'workflow/logs/bakta.{genome}.log'
     shell: """
 bakta --db databases/bakta/db \
@@ -121,28 +124,26 @@ rule bakta_proteins_blast_index:
     params:
         species = SPECIES,
         taxid = NCBI_TAXID
-    conda: "envs/blast.yaml"
+    singularity: "docker://quay.io/biocontainers/blast:2.16.0--h66d330f_5"
     log: 'workflow/logs/bakta_protein_blast_index.log'
     shell: 'bin/blast_index.sh -f data/full/fasta/proteins \
                                -d data/full/blast_db \
                                -s "{params.species}" \
                                -i {params.taxid} \
                                -t p'
-    #run: 
-    #    blast_index(Path('data/full/fasta/proteins'), Path('data/full/blast_db/'),
-    #                SPECIES, NCBI_TAXID, 'prot')
 
 rule busco_lineage:
     output: BUSCO_DATA
     params: 
         lineage = busco_lineage
-    conda: "envs/busco.yaml"
+    singularity: "docker://quay.io/biocontainers/busco:5.8.3--pyhdfd78af_1"
     log: 'workflow/logs/busco_download.log'
     shell: 'busco --download_path databases/busco --download {params.lineage} > {log} 2>&1'
 
 rule skani:
     input: GENOME_FILES
     output: "results/skani/skani.out"
+    singularity: "docker://quay.io/biocontainers/skani:0.2.2--ha6fb395_2"
     conda: "envs/skani.yaml"
     log: 'workflow/logs/skani.log'
     shell: """
@@ -162,7 +163,7 @@ rule busco:
         fasta = 'data/full/annotations/{genome}/{genome}.fna', 
         db = BUSCO_DATA
     output: 'data/full/busco/{genome}/run_bacillales_odb10/full_table.tsv'
-    conda: "envs/busco.yaml"
+    singularity: "docker://quay.io/biocontainers/busco:5.8.3--pyhdfd78af_1"
     params:
         lineage = busco_lineage,
         cwd = cwd
@@ -183,7 +184,7 @@ rule gtdb:
     output: GTDB
     params:
         gtdb_version = gtdb_version
-    conda: "envs/gtdbtk.yaml"
+    singularity: "docker://quay.io/biocontainers/gtdbtk:2.4.1--pyhdfd78af_0"
     log: 'workflow/logs/gtdb.log'
     shell: """
 bin/download_gtdbtk_db.py \
@@ -197,7 +198,7 @@ rule gtdbtk:
         database = GTDB
     output:
         "results/gtdbtk/gtdbtk.bac120.summary.tsv"
-    conda: "envs/gtdbtk.yaml"
+    singularity: "docker://quay.io/biocontainers/gtdbtk:2.4.1--pyhdfd78af_0"
     log: 'workflow/logs/gtdbtk.log'
     shell: """
 export GTDBTK_DATA_PATH="databases/gtdbtk"
@@ -215,8 +216,8 @@ gtdbtk classify_wf \
 
 rule skani_plot: 
     input: SKANI, GTDBTK
-    output: "results/skani/skani.pdf", "results/gtdbtk/classifications.txt"
-    conda: "envs/R.yaml"
+    output: "results/skani/skani.pdf"
+    singularity: "docker://quay.io/biocontainers/r-base:4.4.1"
     log: "workflow/logs/skani_plot.log"
     shell:"""
 bin/ANI.R -f data/full/fasta/genomes \
@@ -226,28 +227,29 @@ bin/ANI.R -f data/full/fasta/genomes \
           > {log} 2>&1
 """
 
-# metadata_add_classification takes the gtdbtk outputs and adds the gtdb taxonomic
-# classification to the metadata file generated by 00_build_genome_dbs.py including
-# a 'Keep' column indicating a genome should be retained for downstream analysis.
+# combine_metadata adds key GTDBTK/BUSCO to ENA download metadata, and 
+# adds 'Keep' column to indicate if a genome should be taken forwards
+# and an 'Exclusion criteria' column indicating which metric(s) have led
+# to it being selected for exclusion
 
-# This can be manually modified as required, but will by default retain all B. subtilis genomes
-
-rule metadata_add_classification:
+rule combine_metadata:
     input: GTDBTK
     params:
         metadata = METADATA_FILE
     output: CLASSIFIED_METADATA
     log: "workflow/logs/metadata_add_classification.log"
     run:
-        combine_metadata(params.metadata, input[0], output[0])
-#        metadata = pd.read_csv(params.metadata, sep="\t")
-#        classifications = pd.read_csv(input[0], sep="\t")
-#
-#        # Add species column, and 'keep' column, set to 1 where species is subtilis
-#        classifications['Species'] = classifications['classification'].map(lambda x: x.split(';')[-1].replace('s__',''))
-#        classifications['Keep'] = 0
-#        classifications.loc[classifications['Species' ]== "Bacillus subtilis", 'Keep'] = 1
-#        classifications = classifications[['user_genome','Species', 'Keep']]
-#        metadata = pd.merge(metadata, classifications, how='inner', left_on='Accession', right_on='user_genome')
-##        metadata = metadata.drop('user_genome', axis = 1)
-#        metadata.to_csv(output[0], sep="\t", index=False)
+        combine_metadata(params.metadata, input[0], busco_lineage, busco_threshold, output[0])
+
+rule extract_com_sequences:
+    input: 
+        bakta = BAKTA_ANNOTS,
+        metadata = CLASSIFIED_METADATA
+    output: 
+        proteins = COM_PROTEINS,
+        spreadsheet = 'data/full/gene_status.xlsx'
+    log: "workflow/logs/extract_com_sequences.log"
+    shell: """
+bin/extract_com_sequences.py -d data/full -m {input.metadata} > {log} 2>&1
+"""
+

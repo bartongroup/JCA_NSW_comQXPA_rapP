@@ -6,6 +6,8 @@ Extracts genes of interest from reannotated genomes
 Script specific to comP - not intended to be generic
 '''
 
+import argparse
+import gzip
 import pandas as pd
 import subprocess
 
@@ -48,7 +50,7 @@ def extract_feature_details(feature):
     """
 
     feature_info = {
-        'location':    f"{feature.location.start}-{feature.location.end}",
+        'location':  f"{feature.location.start}-{feature.location.end}"
     }
 
     translation = get_qualifier('translation', feature)
@@ -70,13 +72,13 @@ def extract_feature_details(feature):
 
     return(feature_info)
 
-def get_gene_sequences(strain_info, genome):
+def get_gene_sequences(metadata, genome):
 
     """
     Parses the downloaded genome record to extract the required sequences
 
     required parameters:
-        strain_info(pd.DataFrame): DataFrame mapping accessions to strain info
+        metadata(pd.DataFrame): DataFrame mapping accessions to strain info
         genome(libpath.Path): Path to record
 
     returns:
@@ -91,7 +93,7 @@ def get_gene_sequences(strain_info, genome):
 
     accession = str(genome.stem).replace('.embl','')
 
-    with open(genome, 'r') as fh:
+    with gzip.open(genome, 'rt') as fh:
 
         for record in SeqIO.parse(fh, format = 'embl'):
 
@@ -144,7 +146,10 @@ def get_gene_sequences(strain_info, genome):
                             # These checks work with all available genomes at the time of writing but changes may be required 
                             # in the light of novel sequences being produced
                             if index == 'comA':
-                                if 'histidine kinase' in cds_info['product'] or 'hypothetical protein' in cds_info['product']:
+                                if not cds_info['product']:
+                                    print(f"{record.id}: No product available" )
+                                    pprint(cds_info)
+                                elif 'histidine kinase' in cds_info['product'] or 'hypothetical protein' in cds_info['product']:
                                     if gene_info['strand']=='-':
                                         cds_info = extract_feature_details(record.features[comX_gene_index-5])
                                     else:
@@ -157,7 +162,7 @@ def get_gene_sequences(strain_info, genome):
 
                             cds_info['record_id'] = record.id
                             id = f'{accession}_{cds_info.get("gene_id")}'
-                            name = strain_info.loc[strain_info['accession']==accession,'isolate'].values[0]
+                            name = metadata.loc[metadata['Accession']==accession,'Title'].values[0]
                             
                             if cds_info.get('translation'):
 
@@ -234,13 +239,14 @@ def blast_index(fasta_dir, blast_dir):
             print(result.stdout)
             print(result.stderr)
 
-def summarise_genes(strain_info, gene_info):
+def summarise_genes(strain_info, outpath, gene_info):
 
     """
     Produces summary spreadsheet on identified genes
 
     Required parameters:
         strain_info(pd.DataFrame): Mapping of accession to strain names
+        outpath(str): Path to output directory
         gene_info(dict): dictionary keyed on accession
     
     returns:
@@ -260,7 +266,7 @@ def summarise_genes(strain_info, gene_info):
                         dat = gene_info[acc][key]
                         dat['accession'] = acc
                         dat['strand'] = strand
-                        dat['strain'] = strain_info.loc[strain_info['accession']==acc,'isolate'].values[0]
+                        dat['strain'] = strain_info.loc[strain_info['Accession']==acc,'Title'].values[0]
 
                         if key in seq_lists.keys():
                             seq_lists[key].append(gene_info[acc][key])
@@ -273,31 +279,42 @@ def summarise_genes(strain_info, gene_info):
         df = df[['accession','record_id','strain','gene_id','locus_tag','cds_length','product','strand','location','pseudogene','note']]
         dfs[gene] = df
 
-    with pd.ExcelWriter('complete/gene_summary.xlsx') as writer:
+    with pd.ExcelWriter(f'{outpath}/gene_status.xlsx') as writer:
         for gene in dfs.keys():
             dfs[gene].to_excel(writer, sheet_name = gene, index = False)
 
 def main():
 
-    genomes = list(Path('complete/genomes').glob('*.embl'))
+    parser = argparse.ArgumentParser(
+        prog = __file__, 
+        description="Downloads, fasta converts and optionally blast indexes genome records for organism"
+    )
+    parser.add_argument('-d', '--datadir', required=True, help="Path to data directory")
+    parser.add_argument('-m', '--metadata', required=True, help="Path to metadata file")
+    args = parser.parse_args()
+
+    outpath = Path(f"{args.datadir}/fasta/com_sequences")
+    outpath.mkdir(parents = True, exist_ok = True)
+
+    genomes = list(Path(f"{args.datadir}/genomes").glob('*.embl.gz'))
 
     all_cds_seqs = list()
     all_prot_seqs  = list()
     all_gene_info = dict()
 
-    strain_info = pd.read_csv('strains.txt', sep="\t")
+    metadata = pd.read_csv(args.metadata, sep="\t")
 
     for genome in tqdm(genomes):
 
-        accession, gene_info, cds_seqs, prot_seqs = get_gene_sequences(strain_info, genome)
+        accession, gene_info, cds_seqs, prot_seqs = get_gene_sequences(metadata, genome)
 
         all_cds_seqs.append(cds_seqs)
         all_prot_seqs.append(prot_seqs)
         all_gene_info[accession] = gene_info
 
-    write_seqs(all_prot_seqs, Path('complete/fasta/com_proteins'))
-    blast_index(Path("complete", "fasta", "protein"), Path("complete", "blast", "protein"))
-    summarise_genes(strain_info, all_gene_info)
+    write_seqs(all_prot_seqs, Path(f'{args.datadir}/fasta/com_proteins'))
+    #blast_index(Path("complete", "fasta", "protein"), Path("complete", "blast", "protein"))
+    summarise_genes(metadata, Path(args.datadir), all_gene_info)
 
 if __name__ == "__main__":
     main()

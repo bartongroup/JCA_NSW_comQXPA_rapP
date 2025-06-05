@@ -1,15 +1,12 @@
 snakefile: workflow/Snakefile
-software-deployment-method: conda
+software-deployment-method: apptainer
 latency-wait: 60
 show-failed-logs: True
 keep-going: True
 printshellcmds: True
 rerun-incomplete: True
-#restart-times: 3
 jobname: "comP_{rule}.{jobid}"
 jobs:  200
-#report: report.html
-#report-after-run: False
 ## DRMAA plugin config
 executor: drmaa
 drmaa-log-dir: drmaa_logs
