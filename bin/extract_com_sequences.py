@@ -10,6 +10,7 @@ import argparse
 import gzip
 import pandas as pd
 import subprocess
+import re
 
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
@@ -207,9 +208,13 @@ def write_seqs(seqs, db_path ):
                 seq_lists[key] = [dic[key]]
 
     for gene in seq_lists.keys():
-        outfile = db_path / f"{gene}{suffix}"
-        with open(outfile, 'w') as fh:
-            SeqIO.write(seq_lists[gene], fh, 'fasta')
+        Path(db_path / gene).mkdir(exist_ok=True)
+        for seq_record in seq_lists[gene]:
+            genome = re.sub("_[A-Za-z]*$", "", seq_record.id)
+
+            outfile = db_path / gene / f"{genome}.fasta"
+            with open(outfile, 'w') as fh:
+                SeqIO.write([seq_record], fh, 'fasta')
 
 def blast_index(fasta_dir, blast_dir):
 

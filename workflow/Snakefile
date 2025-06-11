@@ -36,8 +36,6 @@ PROTEIN_FASTA = expand('data/full/fasta/proteins/{genome}.fasta', genome = GENOM
 PROTEIN_BLAST_SUFFIXES = ['pdb','phr','pin','pjs','pot','psq','ptf','pto']
 PROTEIN_BLAST_DB = expand('data/full/blast_db/proteins/{genome}.{suffix}', genome = GENOMES, suffix = PROTEIN_BLAST_SUFFIXES)
 
-COM_PROTEINS = expand('data/full/fasta/com_proteins/{gene}.faa', gene=['comA','comP','comQ', 'comX'])
-
 BUSCO_DATA = expand('databases/busco/lineages/{busco_lineage}/dataset.cfg', busco_lineage = busco_lineage)
 BUSCOS = expand('data/full/busco/{genome}/run_{lineage}/full_table.tsv', genome = GENOMES, lineage = busco_lineage)
 
@@ -49,6 +47,7 @@ GTDB = ['databases/gtdbtk/taxonomy/gtdb_taxonomy.tsv']
 GTDBTK = ['results/gtdbtk/gtdbtk.bac120.summary.tsv']
 
 CLASSIFIED_METADATA = [str(METADATA_FILE).replace('complete_genomes','metadata')]
+COVERAGE_SPREADSHEET= ['results/protein_coverage.xlsx']
 
 with open('data/full/id_mapping.json') as fh:
     json_map = load(fh)
@@ -59,7 +58,7 @@ for k,v in json_map.items():
         strain_map[v['accession']] = v['strain']
 
 rule all:
-    input: PROTEIN_BLAST_DB + BUSCOS + SKANI_PLOT + COM_PROTEINS
+    input: PROTEIN_BLAST_DB + BUSCOS + SKANI_PLOT + COVERAGE_SPREADSHEET
 
 rule bakta_db:
     output: BAKTA_DB
@@ -241,15 +240,14 @@ rule combine_metadata:
     run:
         combine_metadata(params.metadata, input[0], busco_lineage, busco_threshold, output[0])
 
+# Use summary spreadsheet as output since protein sequences identified are not deterministic
 rule extract_com_sequences:
     input: 
         bakta = BAKTA_ANNOTS,
         metadata = CLASSIFIED_METADATA
     output: 
-        proteins = COM_PROTEINS,
         spreadsheet = 'data/full/gene_status.xlsx'
     log: "workflow/logs/extract_com_sequences.log"
     shell: """
 bin/extract_com_sequences.py -d data/full -m {input.metadata} > {log} 2>&1
 """
-
