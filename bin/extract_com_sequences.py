@@ -284,7 +284,7 @@ def summarise_genes(strain_info, outpath, gene_info):
         df = df[['accession','record_id','strain','gene_id','locus_tag','cds_length','product','strand','location','pseudogene','note']]
         dfs[gene] = df
 
-    with pd.ExcelWriter(f'{outpath}/gene_status.xlsx') as writer:
+    with pd.ExcelWriter(f'{outpath}/com_status.xlsx') as writer:
         for gene in dfs.keys():
             dfs[gene].to_excel(writer, sheet_name = gene, index = False)
 
