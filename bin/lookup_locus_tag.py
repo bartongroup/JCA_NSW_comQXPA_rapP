@@ -5,11 +5,11 @@ from pathlib import Path
 import gzip
 import json
 import re
+import sys
 
 from Bio import SeqIO
 
-
-def parse_data(genome_dir):
+def parse_data(genome_dir, serialised_data):
 
     """
     Parses genome records to extract necessary accessions
@@ -48,12 +48,13 @@ def parse_data(genome_dir):
 
         for record in SeqIO.parse(fh, format = 'embl'):
             genome_accession = genome.name
+            sequence_id = record.id
             genome_accession = re.sub('.embl(.gz)?', '', genome_accession)
 
             for feature in record.features:
                 if feature.type == 'source':
 
-                    genome_data['organism'] = feature.qualifiers['organism']
+                    genome_data['organism'] = feature.qualifiers['organism'][0]
                     if 'strain' in feature.qualifiers:
                         genome_data['strain'] = feature.qualifiers['strain']
 
@@ -70,17 +71,44 @@ def parse_data(genome_dir):
                     for qual in ('gene', 'product', 'protein_id'):
                         genome_data['genes'][locus_tag][qual] = \
                             feature.qualifiers[qual][0] if qual in feature.qualifiers else None
+                    genome_data['genes'][locus_tag]['sequence_id'] = sequence_id
+                    genome_data['genes'][locus_tag]['coordinates'] = f"{feature.location.start} - {feature.location.end}"
+                    genome_data['genes'][locus_tag]['strand'] = feature.location.strand
 
         fh.close()
 
         if short_tag:
             data[short_tag] = genome_data
 
-    with gzip.open('genome_locus_tags.json.gz', 'w') as out_fh:
+    with gzip.open(serialised_data, 'w') as out_fh:
         out_fh.write(json.dumps(data).encode('UTF-8'))
 
     return data
 
+def print_details(ids, data):
+    """
+    Outputs summary of protein for each identifier in input
+
+    Required params
+        ids(string): (possibly multi-line) containing ids
+        data(dict): Dictionary keyed on locus tax prefix produced by parse_data()
+
+    Returns: 
+        None
+    """
+
+    id_list = ids.split()
+
+    for locus_id in id_list:
+
+        tag = locus_id.split('_')[0]
+        locus_data = data[tag]['genes'][locus_id]
+
+        fields = (locus_id, data[tag]['accession'], data[tag]['organism'], 
+                  f"gene: {locus_data['gene']}", locus_data['product'], locus_data['sequence_id'], 
+                  locus_data['coordinates'], str(locus_data['strand']))
+
+        print("\t".join(fields))
 
 def main():
 
@@ -97,24 +125,28 @@ def main():
             by '--genomes' will be read, and the results stored for reuse""" )
 
     parser.add_argument('-i', '--input', help="Idenfiers(s) to resolve")
-    parser.add_argument('-g', '--genomes', help="Path to genomes directory")
+    parser.add_argument('-j', '--json', help="Path to genome_locus_tags.json.gz file", 
+        default = '/cluster/mmb/common/Bsubtilis_complete_genomes/validated/genome_locus_tags.json.gz')
     args = parser.parse_args()
 
-    serialised_data = Path('genome_locus_tags.json.gz')
+    serialised_data = Path(args.json)
+    genome_dir = serialised_data.parent / 'genomes'
 
     if serialised_data.exists():
 
-        with gzip.open('genome_locus_tags.json.gz', 'rb') as fh:
+        with gzip.open(serialised_data, 'rb') as fh:
             json_data = fh.read()
         data = json.loads(json_data)
 
     else:
-        if args.genomes:
-            data = parse_data(Path(args.genomes))
+        data = parse_data(genome_dir, serialised_data)
 
-        else:
-            raise RuntimeError("Path to genome directory required")
+    if args.input:
+        input = args.input
+    else:
+        input = sys.stdin.read()
 
+    print_details(input, data)
 
 if __name__ == "__main__":
     main()
