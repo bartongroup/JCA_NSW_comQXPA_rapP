@@ -47,6 +47,7 @@ GTDB = ['databases/gtdbtk/taxonomy/gtdb_taxonomy.tsv']
 GTDBTK = ['results/gtdbtk/gtdbtk.bac120.summary.tsv']
 
 CLASSIFIED_METADATA = [str(METADATA_FILE).replace('complete_genomes','metadata')]
+COM_PROTEIN_SPREADSHEET = ['data/full/com_status.xlsx']
 COVERAGE_SPREADSHEET= ['results/protein_coverage.xlsx']
 
 with open('data/full/id_mapping.json') as fh:
@@ -227,12 +228,14 @@ bin/ANI.R -f data/full/fasta/genomes \
 """
 
 # combine_metadata adds key GTDBTK/BUSCO to ENA download metadata, and 
-# adds 'Keep' column to indicate if a genome should be taken forwards
+# adds 'Retain' column to indicate if a genome should be taken forwards
 # and an 'Exclusion criteria' column indicating which metric(s) have led
 # to it being selected for exclusion
 
 rule combine_metadata:
-    input: GTDBTK
+    input: 
+        gtdbtk = GTDBTK, 
+        common = 'bin/common.py'
     params:
         metadata = METADATA_FILE
     output: CLASSIFIED_METADATA
@@ -243,11 +246,22 @@ rule combine_metadata:
 # Use summary spreadsheet as output since protein sequences identified are not deterministic
 rule extract_com_sequences:
     input: 
+        script = "bin/extract_com_sequences.py",
         bakta = BAKTA_ANNOTS,
         metadata = CLASSIFIED_METADATA
-    output: 
-        spreadsheet = 'data/full/gene_status.xlsx'
+    output: COM_PROTEIN_SPREADSHEET
     log: "workflow/logs/extract_com_sequences.log"
     shell: """
-bin/extract_com_sequences.py -d data/full -m {input.metadata} > {log} 2>&1
+{input.script} -d data/full -m {input.metadata} > {log} 2>&1
 """
+
+rule check_com_sequences:
+    input:  
+        script = "bin/check_com_seqs.py",
+        com_proteins = COM_PROTEIN_SPREADSHEET,
+        metadata = CLASSIFIED_METADATA
+    output: COVERAGE_SPREADSHEET
+    log: "workflow/logs/check_com_sequences.log"
+    shell: """
+{input.script} -m {input.metadata} > {log} 2>&1
+    """

@@ -161,9 +161,7 @@ def get_busco_completeness(busco_lineage, accession):
 def join_non_empty(vals):
 
     """
-    Joins strings passed as list with semicolons if both are not empty,
-    otherwise returns first or second element if not empty (or second element)
-    as fall-back...
+    Joins strings passed as list with semicolons for elements which are not empty,
 
     Required params: 
         vals(list): list to join
@@ -172,20 +170,20 @@ def join_non_empty(vals):
         text(str): joined string, or single value
     """
 
-    if vals[0] and vals[1]:
+    vals = list(filter(lambda x: x != "", vals))
+
+    if len(vals) > 1:
         return "; ".join(vals)
 
-    if vals[0]:
-        return vals[0]
-
-    return vals[1]
+    if len(vals) == 1:
+        return(vals[0])
 
 
 def combine_metadata(metadata, classifications, busco_lineage, busco_threshold, output):
 
     """
     Update metadata sheet to add GTDBTK classifications and BUSCO completeness, 
-    and add columns to indicate wheter genome should be retained ('keep') and 
+    and add columns to indicate wheter genome should be retained and 
     reason[s] for exclusions
 
     Required params: 
@@ -203,7 +201,6 @@ def combine_metadata(metadata, classifications, busco_lineage, busco_threshold, 
 
     # Add species column from GTDBTK outputs
     classifications['Species'] = classifications['classification'].map(lambda x: x.split(';')[-1].replace('s__',''))
-    #classifications.loc[classifications['Species'] == "Bacillus subtilis", 'Keep'] = 1
     classifications = classifications[['user_genome','Species']]
 
     metadata = pd.merge(metadata, classifications, how='inner', left_on='Accession', right_on='user_genome')
@@ -211,18 +208,24 @@ def combine_metadata(metadata, classifications, busco_lineage, busco_threshold, 
 
     # Add BUSCO completeness...
     metadata['BUSCO completeness'] = metadata['Accession'].map(lambda x: get_busco_completeness(busco_lineage, x))
+    metadata.fillna(value = 'None', inplace = True)
 
-    # Add 'Keep' column defining accessions to be retained, and column explaining rationale for this
-    metadata['Keep'] = 1
+    # Add 'Retain' column defining accessions to be retained, and column explaining rationale for this
+    metadata['Retain'] = 1
     metadata['GTDBTK exclusion'] = ""
     metadata['BUSCO exclusion'] = ""
+    metadata['mutant exclusion'] = ""
 
-    metadata.loc[metadata['Species'] != "Bacillus subtilis", 'Keep'] = 0
+    metadata.loc[metadata['Species'] != "Bacillus subtilis", 'Retain'] = 0
     metadata.loc[metadata['Species'] != "Bacillus subtilis", 'GTDBTK exclusion'] = 'GTDBTK classification'
-    metadata.loc[metadata['BUSCO completeness'] < busco_threshold, 'Keep'] = 0
+    metadata.loc[metadata['BUSCO completeness'] < busco_threshold, 'Retain'] = 0
     metadata.loc[metadata['BUSCO completeness'] < busco_threshold, 'BUSCO exclusion'] = 'Below BUSCO threshold'
+    metadata.loc[metadata['Title'].str.contains('Mutant', case = False), 'mutant exclusion'] = 'Mutated isolate'
+    metadata.loc[metadata['Title'].str.contains('Mutant', case = False), 'Retain'] = 0
+    metadata.loc[metadata['Isolation source'].str.contains('Genome-engineer', case = False), 'mutant exclusion'] = 'Mutated isolate'
+    metadata.loc[metadata['Isolation source'].str.contains('Genome-engineer', case = False), 'Retain'] = 0
 
-    metadata["Exclusion criteria"] = metadata[["GTDBTK exclusion", "BUSCO exclusion"]].apply(join_non_empty, axis=1)
-    metadata.drop(['GTDBTK exclusion', 'BUSCO exclusion'], axis = 1, inplace = True)
+    metadata["Exclusion criteria"] = metadata[["GTDBTK exclusion", "BUSCO exclusion", "mutant exclusion"]].apply(join_non_empty, axis=1)
+    metadata.drop(['GTDBTK exclusion', 'BUSCO exclusion', 'mutant exclusion'], axis = 1, inplace = True)
 
     metadata.to_csv(output, sep = "\t", index = False)
