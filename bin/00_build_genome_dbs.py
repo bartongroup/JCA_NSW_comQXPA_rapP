@@ -519,8 +519,12 @@ def main():
     summary = summary[summary.scaffolds != 0]
 
     # remove the various different ways people provide metadata without providing metadata...
+    # First need to capture accession columns to avoid breaking them by removing NA from i.e. PRJNA (yes...I did that...)
+    accessions = summary[['accession', 'study_id', 'biosample_id']]
+    summary.drop(['study_id', 'biosample_id'], axis =1, inplace = True)
     for phrase in ["[Nn]ot [Aa]pplicable", "NA", "missing", "[Uu]nknown", "[Nn]ot collected"]:
         summary.replace(phrase, "", regex=True, inplace=True)
+    summary = pd.merge(accessions, summary, on = 'accession')
 
     # Look up any ENVO terms which are used to provide environmental metadata
     for field in ["isolation_source", "env_broad_scale", "env_local_scale"]:
