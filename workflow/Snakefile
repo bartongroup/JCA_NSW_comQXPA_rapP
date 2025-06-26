@@ -19,7 +19,11 @@ SPECIES = "Bacillus subtilis"
 
 GENOME_FILES = Path('data/full/fasta/genomes').glob('*')
 GENOMES = [genome.stem for genome in GENOME_FILES]
-METADATA_FILE = list(Path('data/full/').glob('Bacillus_subtilis_complete_genomes*'))[0]
+
+# Make sure we get the most recent metadata file in teh event there are multiple...
+metadata_files = list(Path('data/full/').glob('Bacillus_subtilis_complete_genomes*'))
+metadata_files.sort(key=os.path.getmtime)
+METADATA_FILE = metadata_files[-1]
 
 BAKTA_DB_FILES = [ 'antifam.h3f', 'antifam.h3i', 'antifam.h3m', 'antifam.h3p', 'bakta.db',
         'expert-protein-sequences.dmnd', 'ncRNA-genes.i1f', 'ncRNA-genes.i1i', 'ncRNA-genes.i1m',

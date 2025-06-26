@@ -49,6 +49,7 @@ def parse_data(genome_dir, serialised_data):
         for record in SeqIO.parse(fh, format = 'embl'):
             genome_accession = genome.name
             sequence_id = record.id
+            sequence_length = len(record.seq)
             genome_accession = re.sub('.embl(.gz)?', '', genome_accession)
 
             for feature in record.features:
@@ -72,7 +73,8 @@ def parse_data(genome_dir, serialised_data):
                         genome_data['genes'][locus_tag][qual] = \
                             feature.qualifiers[qual][0] if qual in feature.qualifiers else None
                     genome_data['genes'][locus_tag]['sequence_id'] = sequence_id
-                    genome_data['genes'][locus_tag]['coordinates'] = f"{feature.location.start} - {feature.location.end}"
+                    genome_data['genes'][locus_tag]['sequence_length'] = sequence_length
+                    genome_data['genes'][locus_tag]['coordinates'] = f"{feature.location.start}-{feature.location.end}"
                     genome_data['genes'][locus_tag]['strand'] = feature.location.strand
 
         fh.close()
@@ -102,13 +104,16 @@ def print_details(ids, data):
     for locus_id in id_list:
 
         tag = locus_id.split('_')[0]
-        locus_data = data[tag]['genes'][locus_id]
+        if tag in data:
 
-        fields = (locus_id, data[tag]['accession'], data[tag]['organism'], 
-                  f"gene: {locus_data['gene']}", locus_data['product'], locus_data['sequence_id'], 
-                  locus_data['coordinates'], str(locus_data['strand']))
+            locus_data = data[tag]['genes'][locus_id]
+            fields = (locus_id, data[tag]['accession'], data[tag]['organism'], 
+                    f"gene: {locus_data['gene']}", locus_data['product'], locus_data['sequence_id'], str(locus_data['sequence_length']),
+                    locus_data['coordinates'], str(locus_data['strand']))
 
-        print("\t".join(fields))
+            print("\t".join(fields))
+        else:
+            print(tag)
 
 def main():
 

@@ -93,15 +93,14 @@ def get_gene_sequences(metadata, genome):
     prot_seqs = dict()
 
     accession = str(genome.stem).replace('.embl','')
-
+    print(accession)
+    print(metadata[metadata['Accession']==accession]['Title'])
     with gzip.open(genome, 'rt') as fh:
 
         for record in SeqIO.parse(fh, format = 'embl'):
 
-            ''' 
-            comP and comQ are not reliably annotated, however comX is present in 
-            every annotation so use this to identify the location of the operon 
-            '''
+        #comP and comQ are not reliably annotated, however comX is present in 
+        #every annotation so use this to identify the location of the operon 
 
             for index, feature in enumerate(record.features):
 

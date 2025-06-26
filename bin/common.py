@@ -4,12 +4,15 @@ Functions reused in multiple scripts live here...
 
 import sys
 import re
-from json import load
+from json import load,loads
+import gzip
+from pathlib import Path
 
 from lxml import etree
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter, Retry
+from Bio import SeqIO
 
 def make_request(uri):
 
@@ -109,34 +112,6 @@ def clean_strain(strain):
 
     return strain
 
-#def get_busco_excludes(busco_threshold):
-#    """
-#    Obtains list of accessions which do not meet defined BUSCO completeness threshold
-#
-#    Required paramsters:
-#        busco_threshold (int): Proportion of complete BUSCOs required
-#    
-#    Returns:
-#        exclude(list): list of accessions to exclude
-#    """
-#
-#    busco_results = list(Path('data/full/busco').glob('*/short_summary.specific*json'))
-#    exclude = []
-#
-#    for result in busco_results:
-#
-#        file = result.name
-#        accession = file.replace('short_summary.specific.bacillales_odb10.', '').replace('.json','')
-#
-#        with open(result, encoding='UTF-8') as fh:
-#            dat = load(fh)
-#            complete = dat.get('results').get('Complete percentage')
-#
-#            if float(complete) < busco_threshold:
-#                exclude.append(accession)
-#
-#    return(exclude)
-
 def get_busco_completeness(busco_lineage, accession):
 
     """
@@ -172,11 +147,97 @@ def join_non_empty(vals):
 
     vals = list(filter(lambda x: x != "", vals))
 
-    if len(vals) > 1:
-        return "; ".join(vals)
+    return "; ".join(vals)
 
-    if len(vals) == 1:
-        return(vals[0])
+
+def get_expt_accession(project, biosample):
+
+    """
+    Retrieves experiment accession from ENA for a given project and biosample
+
+    Required params:
+        project(str): PRJNA accession
+        biosample(str): biosample accession
+
+    Returns:
+        expt_ids(str): comma-separated list of ENA run accession
+    """
+
+    project_json = Path(f"data/full/metadata/ena_runs/{project}.json")
+    if project_json.is_file():
+        with open(project_json, 'r', encoding='UTF-8') as fh:
+            result = fh.read()
+    else:
+        uri = f"https://www.ebi.ac.uk/ena/portal/api/filereport?accession={project}&result=read_run&fields=sample_accession,experiment_accession,run_accession&format=json&limit=0"
+        result = make_request(uri)
+        with open(f"data/full/metadata/ena_runs/{project}.json", 'w', encoding='UTF-8') as fh:
+            fh.write(result)
+
+    data = loads(result)
+    expt_accessions = []
+    for run in data:
+        if run['sample_accession'] == biosample:
+            expt_accessions.append(run['experiment_accession'])
+
+    return ','.join(expt_accessions)
+
+def get_sequence_tech(run_ids):
+
+    """
+    Retrieves run data extracts sequencing platform 
+
+    Required params:
+        run_ids(str): comma-separated list of ENA run ids
+
+    Returns:
+        platorms: comma-separated list of sequencing platforms
+    """
+
+    platforms = []
+    for run_id in run_ids.split(','):
+        if run_id:
+            run_file = Path(f'data/full/metadata/ena_expts/{run_id}.xml')
+            if  run_file.exists():
+                with open(run_file, 'r', encoding='UTF-8') as fh:
+                    result = fh.read()
+            else:
+                uri = f"https://www.ebi.ac.uk/ena/browser/api/xml/{run_id}"
+                result = make_request(uri)
+                with open(run_file, 'w', encoding='UTF-8') as fh:
+                    fh.write(result)
+
+            if result:
+                result = result.replace(' encoding="UTF-8"', '')
+                root = etree.fromstring(result)
+
+                # platform should be stored as <PLATFORM><$PLATFORMNAME>
+                platform = root.xpath("EXPERIMENT/PLATFORM/*")
+                if len(platform):
+                    platforms.append(platform[0].tag)
+
+    platforms = list(set(platforms))
+    
+    return ','.join(platforms)
+
+def get_ena_tech(accession):
+    """
+    Parses sequencing platform from ENA entry
+
+    Required arguments
+        accession(str): ENA genome accession
+    
+    Returns:
+        platform(str): Sequencing platform
+    """
+    with gzip.open(f'data/full/genomes/{accession}.embl.gz', 'rt') as fh:
+        records = list(SeqIO.parse(fh, format='embl'))
+        record = records[0]
+        if 'comment' in record.annotations:
+            comment = record.annotations['comment']
+
+            result = re.search(r'Sequencing Technology *:: *([A-Za-z0-9; ]+)', comment)
+            if result:
+                return(result.group(1))
 
 
 def combine_metadata(metadata, classifications, busco_lineage, busco_threshold, output):
@@ -192,18 +253,37 @@ def combine_metadata(metadata, classifications, busco_lineage, busco_threshold, 
         busco_lineage(str): BUSCO lineage 
         busco_threshold(int): Proportion of complete BUSCOs required for inclusion
         output(str): Path to output file to create
-    
+
     Returns:
         None
     """
-    metadata = pd.read_csv(metadata, sep="\t")
-    classifications = pd.read_csv(classifications, sep="\t")
+    run_dir = Path('data/full/metadata/ena_runs')
+    expt_dir = Path('data/full/metadata/ena_expts')
+    run_dir.mkdir(exist_ok=True)
+    expt_dir.mkdir(exist_ok=True)
 
+    metadata = pd.read_csv(metadata, sep="\t")
+    # Projects may be non-unique due to multiple assemblies being available for a project,
+    # so make these distinct...
+    metadata.drop_duplicates(subset='Accession', keep='first', inplace=True)
+
+    # Sequencing platform may either be indicated in the SRA records, or in teh comments section of the ENA record
+    # Need to check both of these and summarise...
+    metadata['Experiment IDs'] = metadata.apply(lambda x: get_expt_accession(x['Study ID'], x['Biosample ID']), axis = 1)
+    metadata['SRA_Platform'] = metadata.apply(lambda x: get_sequence_tech(x['Experiment IDs']), axis = 1)
+    metadata['ENA_Platform'] = metadata.apply(lambda x: get_ena_tech(x['Accession']), axis = 1)
+    metadata['Platform'] = metadata['ENA_Platform'].fillna(metadata['SRA_Platform'])
+
+    metadata=metadata[['Accession', 'Study ID', 'Biosample ID', 'Experiment IDs', 'Title', 'Strain', 'Culture collection',
+        'Host', 'Isolation source', 'Environmental context', 'Location', 'Collection date', 'Scaffolds', 'Platform']]
+
+
+    classifications = pd.read_csv(classifications, sep="\t")
     # Add species column from GTDBTK outputs
     classifications['Species'] = classifications['classification'].map(lambda x: x.split(';')[-1].replace('s__',''))
     classifications = classifications[['user_genome','Species']]
 
-    metadata = pd.merge(metadata, classifications, how='inner', left_on='Accession', right_on='user_genome')
+    metadata = pd.merge(metadata, classifications, how='left', left_on='Accession', right_on='user_genome')
     metadata = metadata.drop('user_genome', axis = 1)
 
     # Add BUSCO completeness...
@@ -215,6 +295,10 @@ def combine_metadata(metadata, classifications, busco_lineage, busco_threshold, 
     metadata['GTDBTK exclusion'] = ""
     metadata['BUSCO exclusion'] = ""
     metadata['mutant exclusion'] = ""
+    metadata['platform exclusion'] = ""
+
+    nanopore_platforms = ['Nanopore', 'Oxford Nanopore', 'Oxford Nanopore GridION','Oxford Nanopore MinION', 'Oxford Nanopore MiniION',
+    'Oxford Nanopore PromethION', 'Oxford Nanopore PromethION ', 'PromethION']
 
     metadata.loc[metadata['Species'] != "Bacillus subtilis", 'Retain'] = 0
     metadata.loc[metadata['Species'] != "Bacillus subtilis", 'GTDBTK exclusion'] = 'GTDBTK classification'
@@ -224,8 +308,10 @@ def combine_metadata(metadata, classifications, busco_lineage, busco_threshold, 
     metadata.loc[metadata['Title'].str.contains('Mutant', case = False), 'Retain'] = 0
     metadata.loc[metadata['Isolation source'].str.contains('Genome-engineer', case = False), 'mutant exclusion'] = 'Mutated isolate'
     metadata.loc[metadata['Isolation source'].str.contains('Genome-engineer', case = False), 'Retain'] = 0
+    metadata.loc[metadata['Platform'].isin(nanopore_platforms), 'platform exclusion'] = 'Nanopore only assembly'
+    metadata.loc[metadata['Platform'].isin(nanopore_platforms), 'Retain'] = 0
 
-    metadata["Exclusion criteria"] = metadata[["GTDBTK exclusion", "BUSCO exclusion", "mutant exclusion"]].apply(join_non_empty, axis=1)
-    metadata.drop(['GTDBTK exclusion', 'BUSCO exclusion', 'mutant exclusion'], axis = 1, inplace = True)
+    metadata["Exclusion criteria"] = metadata[["GTDBTK exclusion", "BUSCO exclusion", "mutant exclusion", "platform exclusion"]].apply(join_non_empty, axis=1)
+    metadata.drop(['GTDBTK exclusion', 'BUSCO exclusion', 'mutant exclusion', 'platform exclusion'], axis = 1, inplace = True)
 
     metadata.to_csv(output, sep = "\t", index = False)
