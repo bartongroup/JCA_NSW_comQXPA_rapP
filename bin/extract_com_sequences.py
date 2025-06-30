@@ -97,9 +97,8 @@ def get_gene_sequences(genome):
 
             for index, feature in enumerate(record.features):
 
-                if feature.type == 'gene':
-
-                    if 'gene' in feature.qualifiers.keys() and 'comX' in feature.qualifiers.get('gene')[0]:
+                if feature.type == 'gene' and 'gene' in feature.qualifiers.keys():
+                    if 'comX' in feature.qualifiers.get('gene')[0]:
                         comX_gene_index = index
                         cds_indices = {}
 
@@ -150,6 +149,9 @@ def get_gene_sequences(genome):
                                         cds_info = extract_feature_details(record.features[comX_gene_index+9])
 
                             cds_info['record_id'] = record.id
+                            cds_info['genomic_context'] = 'genome'
+                            if 'plasmid' in record.description:
+                                cds_info['genomic_context'] = 'plasmid'
                             gene_id = f'{accession}_{cds_info.get("gene_id")}'
 
                             if cds_info.get('translation'):
@@ -162,6 +164,29 @@ def get_gene_sequences(genome):
                                 )
                                 prot_seqs[index] = protein
                             gene_info[index] = cds_info
+
+                # rapP does not seem to be annotated with a gene name by bakta, but does have
+                # a product attached to CDS features
+                elif feature.type == 'CDS' and 'product' in feature.qualifiers.keys() and \
+                    feature.qualifiers.get('product')[0] == 'Rap phosphatase':
+
+                    cds_info = extract_feature_details(feature)
+                    cds_info['record_id'] = record.id
+                    cds_info['genomic_context'] = 'genome'
+                    if 'plasmid' in record.description:
+                        cds_info['genomic_context'] = 'plasmid'
+
+                    gene_id = f'{accession}_rapP'
+                    if cds_info.get('translation'):
+
+                        protein = SeqRecord(
+                            Seq(cds_info['translation']),
+                                id = gene_id,
+                                description = cds_info.get('product'),
+                                annotations={'molecule_type': "protein"}
+                        )
+                        prot_seqs['rapP'] = protein
+                    gene_info['rapP'] = cds_info
 
     return(accession, gene_info, cds_seqs, prot_seqs)
 
@@ -185,6 +210,7 @@ def write_seqs(seqs, db_path):
 
     # reorganise list of dicts into a dict of lists...
     seq_lists = {}
+
     for dic in seqs:
         for key in dic:
             if key in seq_lists:
@@ -238,10 +264,10 @@ def summarise_genes(strain_info, outpath, gene_info):
     dfs = {}
     for gene,seq_list in seq_lists.items():
         df = pd.DataFrame(seq_list)
-        df = df[['accession','record_id','strain','gene_id','locus_tag','cds_length','product','strand','location','pseudogene','note']]
+        df = df[['accession','record_id','genomic_context', 'strain','gene_id','locus_tag','cds_length','product','strand','location','pseudogene','note']]
         dfs[gene] = df
 
-    with pd.ExcelWriter(f'{outpath}/com_status.xlsx') as writer:
+    with pd.ExcelWriter(f'{outpath}/protein_status.xlsx') as writer:
         for gene, gene_df in dfs.items():
             gene_df.to_excel(writer, sheet_name = gene, index = False)
 
@@ -259,8 +285,8 @@ def main():
     parser.add_argument('-m', '--metadata', required=True, help="Path to metadata file")
     args = parser.parse_args()
 
-    outpath = Path(f"{args.datadir}/fasta/com_sequences")
-    outpath.mkdir(parents = True, exist_ok = True)
+    #outpath = Path(f"{args.datadir}/fasta/com_sequences")
+    #outpath.mkdir(parents = True, exist_ok = True)
 
     genomes = list(Path(f"{args.datadir}/annotations").glob('*/*.embl'))
 
@@ -278,7 +304,7 @@ def main():
         all_prot_seqs.append(prot_seqs)
         all_gene_info[accession] = gene_info
 
-    write_seqs(all_prot_seqs, Path(f'{args.datadir}/fasta/com_proteins'))
+    write_seqs(all_prot_seqs, Path(f'{args.datadir}/fasta/target_proteins'))
     summarise_genes(metadata, Path(args.datadir), all_gene_info)
 
 if __name__ == "__main__":
