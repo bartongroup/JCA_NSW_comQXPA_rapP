@@ -285,9 +285,6 @@ def main():
     parser.add_argument('-m', '--metadata', required=True, help="Path to metadata file")
     args = parser.parse_args()
 
-    #outpath = Path(f"{args.datadir}/fasta/com_sequences")
-    #outpath.mkdir(parents = True, exist_ok = True)
-
     genomes = list(Path(f"{args.datadir}/annotations").glob('*/*.embl'))
 
     all_cds_seqs = list()

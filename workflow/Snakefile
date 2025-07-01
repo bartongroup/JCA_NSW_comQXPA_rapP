@@ -51,7 +51,7 @@ GTDB = ['databases/gtdbtk/taxonomy/gtdb_taxonomy.tsv']
 GTDBTK = ['results/gtdbtk/gtdbtk.bac120.summary.tsv']
 
 CLASSIFIED_METADATA = [str(METADATA_FILE).replace('complete_genomes','metadata')]
-COM_PROTEIN_SPREADSHEET = ['data/full/com_status.xlsx']
+PROTEIN_SPREADSHEET = ['data/full/protein_status.xlsx']
 COVERAGE_SPREADSHEET= ['results/protein_coverage.xlsx']
 
 with open('data/full/id_mapping.json') as fh:
@@ -248,9 +248,9 @@ rule combine_metadata:
         combine_metadata(params.metadata, input[0], busco_lineage, busco_threshold, output[0])
 
 # Use summary spreadsheet as output since protein sequences identified are not deterministic
-rule extract_com_sequences:
+rule extract_protein_sequences:
     input: 
-        script = "bin/extract_com_sequences.py",
+        script = "bin/extract_protein_sequences.py",
         bakta = BAKTA_ANNOTS,
         metadata = CLASSIFIED_METADATA
     output: COM_PROTEIN_SPREADSHEET
@@ -259,10 +259,10 @@ rule extract_com_sequences:
 {input.script} -d data/full -m {input.metadata} > {log} 2>&1
 """
 
-rule check_com_sequences:
+rule check_protein_sequences:
     input:  
-        script = "bin/check_com_seqs.py",
-        com_proteins = COM_PROTEIN_SPREADSHEET,
+        script = "bin/check_protein_sequences.py",
+        com_proteins = PROTEIN_SPREADSHEET,
         metadata = CLASSIFIED_METADATA
     output: COVERAGE_SPREADSHEET
     log: "workflow/logs/check_com_sequences.log"
