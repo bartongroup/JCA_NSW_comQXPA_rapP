@@ -68,6 +68,45 @@ def extract_feature_details(feature):
 
     return feature_info
 
+def extract_cds_details(cds_info, record, accession, gene_name):
+
+    """
+    Extracts details from CDS features, including creating sequence
+    object from translation
+
+    Required fields:
+        cds_info(dict): Dict of details of CDS
+        record(SeqRecord): Parent record for CDS feature
+        accession(str): Genome accession
+
+    Returns:
+        cds_info(dict): Updated dict
+        protein(Bio::SeqRecord): Sequence of protein translation
+    """
+
+    protein = None
+
+    cds_info['record_id'] = record.id
+    cds_info['genomic_context'] = 'chromosome'
+    if 'plasmid' in record.description:
+        cds_info['genomic_context'] = 'plasmid'
+    gene_id = cds_info.get("gene_id")
+    if gene_id is None:
+        gene_id = gene_name
+    gene_id = f'{accession}_{gene_id}'
+
+    if cds_info.get('translation'):
+
+        protein = SeqRecord(
+            Seq(cds_info['translation']),
+                id = gene_id,
+                description = cds_info.get('product'),
+                annotations={'molecule_type': "protein"}
+        )
+
+    return(cds_info, protein)
+
+
 def get_gene_sequences(genome):
 
     """
@@ -148,22 +187,7 @@ def get_gene_sequences(genome):
                                     else:
                                         cds_info = extract_feature_details(record.features[comX_gene_index+9])
 
-                            cds_info['record_id'] = record.id
-                            cds_info['genomic_context'] = 'genome'
-                            if 'plasmid' in record.description:
-                                cds_info['genomic_context'] = 'plasmid'
-                            gene_id = f'{accession}_{cds_info.get("gene_id")}'
-
-                            if cds_info.get('translation'):
-
-                                protein = SeqRecord(
-                                    Seq(cds_info['translation']),
-                                        id = gene_id,
-                                        description = cds_info.get('product'),
-                                        annotations={'molecule_type': "protein"}
-                                )
-                                prot_seqs[index] = protein
-                            gene_info[index] = cds_info
+                            gene_info[index], prot_seqs[index] = extract_cds_details(cds_info, record, accession, index)
 
                 # rapP does not seem to be annotated with a gene name by bakta, but does have
                 # a product attached to CDS features
@@ -171,22 +195,7 @@ def get_gene_sequences(genome):
                     feature.qualifiers.get('product')[0] == 'Rap phosphatase':
 
                     cds_info = extract_feature_details(feature)
-                    cds_info['record_id'] = record.id
-                    cds_info['genomic_context'] = 'genome'
-                    if 'plasmid' in record.description:
-                        cds_info['genomic_context'] = 'plasmid'
-
-                    gene_id = f'{accession}_rapP'
-                    if cds_info.get('translation'):
-
-                        protein = SeqRecord(
-                            Seq(cds_info['translation']),
-                                id = gene_id,
-                                description = cds_info.get('product'),
-                                annotations={'molecule_type': "protein"}
-                        )
-                        prot_seqs['rapP'] = protein
-                    gene_info['rapP'] = cds_info
+                    gene_info['rapP'], prot_seqs['rapP'] = extract_cds_details(cds_info, record, accession, 'rapP')
 
     return(accession, gene_info, cds_seqs, prot_seqs)
 
@@ -221,11 +230,12 @@ def write_seqs(seqs, db_path):
     for gene, seqs in seq_lists.items():
         Path(db_path / gene).mkdir(exist_ok=True)
         for seq_record in seqs:
-            genome = re.sub("_[A-Za-z]*$", "", seq_record.id)
+            if seq_record is not None:
+                genome = re.sub("_[A-Za-z]*$", "", seq_record.id)
 
-            outfile = db_path / gene / f"{genome}.fasta"
-            with open(outfile, 'w', encoding='UTF-8') as fh:
-                SeqIO.write([seq_record], fh, 'fasta')
+                outfile = db_path / gene / f"{genome}.fasta"
+                with open(outfile, 'w', encoding='UTF-8') as fh:
+                    SeqIO.write([seq_record], fh, 'fasta')
 
 def summarise_genes(strain_info, outpath, gene_info):
 
