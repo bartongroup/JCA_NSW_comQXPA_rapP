@@ -52,7 +52,7 @@ GTDBTK = ['results/gtdbtk/gtdbtk.bac120.summary.tsv']
 
 CLASSIFIED_METADATA = [str(METADATA_FILE).replace('complete_genomes','metadata')]
 PROTEIN_SPREADSHEET = ['data/full/protein_status.xlsx']
-COVERAGE_SPREADSHEET= ['results/protein_coverage.xlsx']
+COVERAGE_SPREADSHEET= ['data/full/protein_coverage.xlsx']
 
 with open('data/full/id_mapping.json') as fh:
     json_map = load(fh)
@@ -253,7 +253,7 @@ rule extract_protein_sequences:
         script = "bin/extract_protein_sequences.py",
         bakta = BAKTA_ANNOTS,
         metadata = CLASSIFIED_METADATA
-    output: COM_PROTEIN_SPREADSHEET
+    output: PROTEIN_SPREADSHEET
     log: "workflow/logs/extract_com_sequences.log"
     shell: """
 {input.script} -d data/full -m {input.metadata} > {log} 2>&1
