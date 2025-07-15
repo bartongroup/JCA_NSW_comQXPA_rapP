@@ -85,9 +85,13 @@ def blast_genome(genome, gene, query, query_len):
         hit_res['genome_coverage'] < 90:
         hit_res['warning'] = True
 
-    return(hit_res)
+    return hit_res
 
 def main():
+
+    """
+    Main method...
+    """
 
     gene_results = dict()
 
@@ -106,20 +110,18 @@ def main():
 
         results_df = pd.DataFrame(results)
         results_df = results_df.rename(columns = lambda x: f"{x}_{gene}")
-        results_df = results_df.rename({f"genome_{gene}": "genome"}, axis=1)
+        results_df = results_df.rename({f"genome_{gene}": "accession"}, axis=1)
         gene_results[gene] = results_df
 
 
-    merged_df = pd.merge(gene_results['comA'], gene_results['comP'], on='genome', how = 'left')
-    merged_df = pd.merge(merged_df, gene_results['comX'], on='genome', how = 'left')
-    merged_df = pd.merge(merged_df, gene_results['comQ'], on='genome', how = 'left')
-    merged_df = pd.merge(merged_df, gene_results['rapP'], on='genome', how = 'left')
+    merged_df = pd.merge(gene_results['comA'], gene_results['comP'], on='accession', how = 'left')
+    merged_df = pd.merge(merged_df, gene_results['comX'], on='accession', how = 'left')
+    merged_df = pd.merge(merged_df, gene_results['comQ'], on='accession', how = 'left')
+    merged_df = pd.merge(merged_df, gene_results['rapP'], on='accession', how = 'left')
     merged_df.drop(['description_comA','description_comP','description_comX','description_comQ','description_rapP'], 
         axis = 1, inplace = True)
 
     merged_df.to_csv('data/full/protein_coverage.txt', sep="\t", index=False)
-    #with pd.ExcelWriter('data/full/protein_coverage.xlsx') as writer:
-    #    merged_df.to_excel(writer, sheet_name = 'protein coverage', index = False)
 
 if __name__ == "__main__":
     main()
