@@ -274,12 +274,19 @@ def summarise_genes(strain_info, outpath, gene_info):
     dfs = {}
     for gene,seq_list in seq_lists.items():
         df = pd.DataFrame(seq_list)
-        df = df[['accession','record_id','genomic_context', 'strain','gene_id','locus_tag','cds_length','product','strand','location','pseudogene','note']]
+        df = df.rename(columns = lambda x: f"{x}_{gene}")
+        df = df.rename({f"accession_{gene}": "accession"}, axis=1)
+        df = df[['accession',f'record_id_{gene}',f'genomic_context_{gene}', f'strain_{gene}',
+            f'gene_id_{gene}',f'locus_tag_{gene}',f'cds_length_{gene}',f'product_{gene}',f'strand_{gene}',
+            f'location_{gene}',f'pseudogene_{gene}',f'note_{gene}']]
         dfs[gene] = df
 
-    with pd.ExcelWriter(f'{outpath}/protein_status.xlsx') as writer:
-        for gene, gene_df in dfs.items():
-            gene_df.to_excel(writer, sheet_name = gene, index = False)
+    merged_df = pd.merge(dfs['comA'], dfs['comP'], on='accession', how = 'left')
+    merged_df = pd.merge(merged_df, dfs['comX'], on='accession', how = 'left')
+    merged_df = pd.merge(merged_df, dfs['comQ'], on='accession', how = 'left')
+    merged_df = pd.merge(merged_df, dfs['rapP'], on='accession', how = 'left')
+
+    merged_df.to_csv('data/full/protein_status.txt', sep="\t", index=False)
 
 def main():
 
