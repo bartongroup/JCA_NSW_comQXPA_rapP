@@ -50,9 +50,9 @@ SKANI_PLOT = ["results/skani/skani.pdf"]
 GTDB = ['databases/gtdbtk/taxonomy/gtdb_taxonomy.tsv']
 GTDBTK = ['results/gtdbtk/gtdbtk.bac120.summary.tsv']
 
-CLASSIFIED_METADATA = [str(METADATA_FILE).replace('complete_genomes','metadata')]
-PROTEIN_SPREADSHEET = ['data/full/protein_status.xlsx']
-COVERAGE_SPREADSHEET= ['data/full/protein_coverage.xlsx']
+COMBINED_METADATA = [str(METADATA_FILE).replace('complete_genomes','metadata').replace('.txt','.xlsx')]
+PROTEIN_SPREADSHEET = ['data/full/protein_status.txt']
+COVERAGE_SPREADSHEET = ['data/full/protein_coverage.txt']
 
 with open('data/full/id_mapping.json') as fh:
     json_map = load(fh)
@@ -63,7 +63,7 @@ for k,v in json_map.items():
         strain_map[v['accession']] = v['strain']
 
 rule all:
-    input: PROTEIN_BLAST_DB + BUSCOS + SKANI_PLOT + COVERAGE_SPREADSHEET
+    input: PROTEIN_BLAST_DB + BUSCOS + SKANI_PLOT + COMBINED_METADATA
 
 rule bakta_db:
     output: BAKTA_DB
@@ -231,28 +231,13 @@ bin/ANI.R -f data/full/fasta/genomes \
           > {log} 2>&1
 """
 
-# combine_metadata adds key GTDBTK/BUSCO to ENA download metadata, and 
-# adds 'Retain' column to indicate if a genome should be taken forwards
-# and an 'Exclusion criteria' column indicating which metric(s) have led
-# to it being selected for exclusion
-
-rule combine_metadata:
-    input: 
-        gtdbtk = GTDBTK, 
-        common = 'bin/common.py'
-    params:
-        metadata = METADATA_FILE
-    output: CLASSIFIED_METADATA
-    log: "workflow/logs/metadata_add_classification.log"
-    run:
-        combine_metadata(params.metadata, input[0], busco_lineage, busco_threshold, output[0])
-
 # Use summary spreadsheet as output since protein sequences identified are not deterministic
+
 rule extract_protein_sequences:
     input: 
         script = "bin/extract_protein_sequences.py",
         bakta = BAKTA_ANNOTS,
-        metadata = CLASSIFIED_METADATA
+        metadata = METADATA_FILE
     output: PROTEIN_SPREADSHEET
     log: "workflow/logs/extract_com_sequences.log"
     shell: """
@@ -262,10 +247,29 @@ rule extract_protein_sequences:
 rule check_protein_sequences:
     input:  
         script = "bin/check_protein_sequences.py",
-        com_proteins = PROTEIN_SPREADSHEET,
-        metadata = CLASSIFIED_METADATA
+        com_proteins = PROTEIN_SPREADSHEET, 
+        metadata = METADATA_FILE
     output: COVERAGE_SPREADSHEET
     log: "workflow/logs/check_com_sequences.log"
     shell: """
 {input.script} -m {input.metadata} > {log} 2>&1
     """
+
+# combine_metadata adds key GTDBTK/BUSCO to ENA download metadata, and 
+# adds 'Retain' column to indicate if a genome should be taken forwards
+# and an 'Exclusion criteria' column indicating which metric(s) have led
+# to it being selected for exclusion. Data from PROTEIN_SPREADSHEET and
+# COVERAGE_SPREADSHEET are also merged here
+
+rule combine_metadata:
+    input: 
+        gtdbtk = GTDBTK, 
+        protein_spreadsheet = PROTEIN_SPREADSHEET,
+        protein_coverage = COVERAGE_SPREADSHEET,
+        common = 'bin/common.py'
+    params:
+        metadata = METADATA_FILE
+    output: COMBINED_METADATA
+    log: "workflow/logs/metadata_add_classification.log"
+    run:
+        combine_metadata(params.metadata, input.protein_spreadsheet[0], input.protein_coverage[0], input[0], busco_lineage, busco_threshold, output[0])
