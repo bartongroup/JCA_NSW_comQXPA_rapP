@@ -56,8 +56,10 @@ def blast_genome(genome, gene, query, query_len):
                 'description': bl_result.hits[0].description.split(' ',1)[1],
                 'genome_query_len': query_len,
                 'genome_align_len': bl_result.hits[0].hsps[0].aln_span,
-                'genome_coverage': query_len/bl_result.hits[0].hsps[0].aln_span * 100,
+                'genome_evalue': bl_result.hits[0].hsps[0].evalue,
+                'genome_coverage': float(f"{bl_result.hits[0].hsps[0].aln_span/query_len * 100:.2f}"),
                 'genome_identity': bl_result.hits[0].hsps[0].ident_num,
+                'genome_percent_identity': float(f"{bl_result.hits[0].hsps[0].ident_num/query_len * 100:.2f}"),
                 'genome_coords': f"{bl_result.hits[0].hsps[0].hit_start}-{bl_result.hits[0].hsps[0].hit_end}",
                 'genome_strand': strand
             }
@@ -74,8 +76,10 @@ def blast_genome(genome, gene, query, query_len):
         if len(bl_result.hits):
 
             hit_res['protein_align_len'] =  bl_result.hits[0].hsps[0].aln_span
-            hit_res['protein_coverage'] =  query_len/bl_result.hits[0].hsps[0].aln_span * 100
+            hit_res['protein_evalue'] = bl_result.hits[0].hsps[0].evalue
+            hit_res['protein_coverage'] =  float(f"{bl_result.hits[0].hsps[0].aln_span/query_len * 100:.2f}")
             hit_res['protein_identity'] = bl_result.hits[0].hsps[0].ident_num
+            hit_res['protein_percent_identity'] = float(f"{bl_result.hits[0].hsps[0].ident_num/query_len * 100:.2f}")
 
     # Flag cases where we seem to have better blast hits to genome than from identifiedo prediction
     hit_res['warning'] = False

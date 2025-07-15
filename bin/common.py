@@ -219,7 +219,7 @@ def get_sequence_tech(run_ids):
                     platforms.append(platform[0].tag)
 
     platforms = list(set(platforms))
-    
+
     return ','.join(platforms)
 
 def get_ena_tech(accession):
@@ -240,7 +240,9 @@ def get_ena_tech(accession):
 
             result = re.search(r'Sequencing Technology *:: *([A-Za-z0-9; ]+)', comment)
             if result:
-                return(result.group(1))
+                return result.group(1)
+
+    return None
 
 def format_header_cell(ws, cell, label):
 
@@ -348,11 +350,11 @@ def combine_metadata(metadata, proteins, protein_coverage, classifications, busc
     ws.merge_cells('AO1:AY1')
     ws.merge_cells('AZ1:BJ1')
     ws.merge_cells('BK1:BU1')
-    ws.merge_cells('BV1:CE1')
-    ws.merge_cells('CF1:CO1')
-    ws.merge_cells('CP1:CY1')
-    ws.merge_cells('CZ1:DI1')
-    ws.merge_cells('DJ1:DS1')
+    ws.merge_cells('BV1:CI1')
+    ws.merge_cells('CJ1:CW1')
+    ws.merge_cells('CX1:DK1')
+    ws.merge_cells('DL1:DY1')
+    ws.merge_cells('DZ1:EM1')
 
     format_header_cell(ws, 'S1', 'comA Protein Details')
     format_header_cell(ws, 'AD1', 'comP Protein Details')
@@ -361,9 +363,9 @@ def combine_metadata(metadata, proteins, protein_coverage, classifications, busc
     format_header_cell(ws, 'BK1', 'rapP Protein Details')
 
     format_header_cell(ws, 'BV1', 'comA Protein Blast results')
-    format_header_cell(ws, 'CF1', 'comP Protein Blast results')
-    format_header_cell(ws, 'CP1', 'comX Protein Blast results')
-    format_header_cell(ws, 'CZ1', 'comQ Protein Blast results')
-    format_header_cell(ws, 'DJ1', 'rapP Protein Blast results')
+    format_header_cell(ws, 'CJ1', 'comP Protein Blast results')
+    format_header_cell(ws, 'CX1', 'comX Protein Blast results')
+    format_header_cell(ws, 'DL1', 'comQ Protein Blast results')
+    format_header_cell(ws, 'DZ1', 'rapP Protein Blast results')
 
     wb.save(output)
