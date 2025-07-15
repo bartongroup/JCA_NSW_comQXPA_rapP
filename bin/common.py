@@ -10,6 +10,9 @@ from pathlib import Path
 
 from lxml import etree
 import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.styles import Font, Alignment
+
 import requests
 from requests.adapters import HTTPAdapter, Retry
 from Bio import SeqIO
@@ -239,8 +242,26 @@ def get_ena_tech(accession):
             if result:
                 return(result.group(1))
 
+def format_header_cell(ws, cell, label):
 
-def combine_metadata(metadata, classifications, busco_lineage, busco_threshold, output):
+    """
+    Formats a header cell
+
+    Required Parameters: 
+        ws: worksheet
+        cell: cell to update
+        label: text to set as cell value
+    
+    Returns:
+        None
+    """
+
+    ws[cell].value = label
+    ws[cell].font = Font(bold = True)
+    ws[cell].alignment = Alignment(horizontal = 'center', vertical = 'center')
+
+
+def combine_metadata(metadata, proteins, protein_coverage, classifications, busco_lineage, busco_threshold, output):
 
     """
     Update metadata sheet to add GTDBTK classifications and BUSCO completeness, 
@@ -257,12 +278,17 @@ def combine_metadata(metadata, classifications, busco_lineage, busco_threshold, 
     Returns:
         None
     """
+    # TODO _ this should be somewhere else...but where?
     run_dir = Path('data/full/metadata/ena_runs')
     expt_dir = Path('data/full/metadata/ena_expts')
     run_dir.mkdir(exist_ok=True)
     expt_dir.mkdir(exist_ok=True)
 
     metadata = pd.read_csv(metadata, sep="\t")
+    classifications = pd.read_csv(classifications, sep="\t")
+    protein_df = pd.read_csv(proteins, sep="\t")
+    coverage_df = pd.read_csv(protein_coverage, sep="\t")
+
     # Projects may be non-unique due to multiple assemblies being available for a project,
     # so make these distinct...
     metadata.drop_duplicates(subset='Accession', keep='first', inplace=True)
@@ -277,8 +303,6 @@ def combine_metadata(metadata, classifications, busco_lineage, busco_threshold, 
     metadata=metadata[['Accession', 'Study ID', 'Biosample ID', 'Experiment IDs', 'Title', 'Strain', 'Culture collection',
         'Host', 'Isolation source', 'Environmental context', 'Location', 'Collection date', 'Scaffolds', 'Platform']]
 
-
-    classifications = pd.read_csv(classifications, sep="\t")
     # Add species column from GTDBTK outputs
     classifications['Species'] = classifications['classification'].map(lambda x: x.split(';')[-1].replace('s__',''))
     classifications = classifications[['user_genome','Species']]
@@ -295,10 +319,6 @@ def combine_metadata(metadata, classifications, busco_lineage, busco_threshold, 
     metadata['GTDBTK exclusion'] = ""
     metadata['BUSCO exclusion'] = ""
     metadata['mutant exclusion'] = ""
-    metadata['platform exclusion'] = ""
-
-    nanopore_platforms = ['Nanopore', 'Oxford Nanopore', 'Oxford Nanopore GridION','Oxford Nanopore MinION', 'Oxford Nanopore MiniION',
-    'Oxford Nanopore PromethION', 'Oxford Nanopore PromethION ', 'PromethION']
 
     metadata.loc[metadata['Species'] != "Bacillus subtilis", 'Retain'] = 0
     metadata.loc[metadata['Species'] != "Bacillus subtilis", 'GTDBTK exclusion'] = 'GTDBTK classification'
@@ -308,10 +328,42 @@ def combine_metadata(metadata, classifications, busco_lineage, busco_threshold, 
     metadata.loc[metadata['Title'].str.contains('Mutant', case = False), 'Retain'] = 0
     metadata.loc[metadata['Isolation source'].str.contains('Genome-engineer', case = False), 'mutant exclusion'] = 'Mutated isolate'
     metadata.loc[metadata['Isolation source'].str.contains('Genome-engineer', case = False), 'Retain'] = 0
-    metadata.loc[metadata['Platform'].isin(nanopore_platforms), 'platform exclusion'] = 'Nanopore only assembly'
-    metadata.loc[metadata['Platform'].isin(nanopore_platforms), 'Retain'] = 0
 
-    metadata["Exclusion criteria"] = metadata[["GTDBTK exclusion", "BUSCO exclusion", "mutant exclusion", "platform exclusion"]].apply(join_non_empty, axis=1)
-    metadata.drop(['GTDBTK exclusion', 'BUSCO exclusion', 'mutant exclusion', 'platform exclusion'], axis = 1, inplace = True)
+    metadata["Exclusion criteria"] = metadata[["GTDBTK exclusion", "BUSCO exclusion", "mutant exclusion"]].apply(join_non_empty, axis=1)
+    metadata.drop(['GTDBTK exclusion', 'BUSCO exclusion', 'mutant exclusion'], axis = 1, inplace = True)
 
-    metadata.to_csv(output, sep = "\t", index = False)
+    metadata = pd.merge(metadata, protein_df, left_on='Accession', right_on='accession', how='left')
+    metadata = pd.merge(metadata, coverage_df, left_on='Accession', right_on='accession', how='left')
+    metadata.drop(['accession_x','accession_y'], axis = 1, inplace = True)
+
+    metadata.to_excel(output, index = False)
+
+    # Reread excel file and tweak...
+    wb = load_workbook(output)
+    ws = wb.active
+
+    ws.insert_rows(1)
+    ws.merge_cells('S1:AC1')
+    ws.merge_cells('AD1:AN1')
+    ws.merge_cells('AO1:AY1')
+    ws.merge_cells('AZ1:BJ1')
+    ws.merge_cells('BK1:BU1')
+    ws.merge_cells('BV1:CE1')
+    ws.merge_cells('CF1:CO1')
+    ws.merge_cells('CP1:CY1')
+    ws.merge_cells('CZ1:DI1')
+    ws.merge_cells('DJ1:DS1')
+
+    format_header_cell(ws, 'S1', 'comA Protein Details')
+    format_header_cell(ws, 'AD1', 'comP Protein Details')
+    format_header_cell(ws, 'AO1', 'comX Protein Details')
+    format_header_cell(ws, 'AZ1', 'comQ Protein Details')
+    format_header_cell(ws, 'BK1', 'rapP Protein Details')
+
+    format_header_cell(ws, 'BV1', 'comA Protein Blast results')
+    format_header_cell(ws, 'CF1', 'comP Protein Blast results')
+    format_header_cell(ws, 'CP1', 'comX Protein Blast results')
+    format_header_cell(ws, 'CZ1', 'comQ Protein Blast results')
+    format_header_cell(ws, 'DJ1', 'rapP Protein Blast results')
+
+    wb.save(output)
