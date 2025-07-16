@@ -1,11 +1,13 @@
 from pathlib import Path
 import pandas as pd
+import builtins
 from Bio import SeqIO
 from json import load
 
 from common import (
     get_taxa_name,
-    combine_metadata
+    combine_metadata,
+    refine_genomes
 )
 
 busco_lineage = 'bacillales_odb10'
@@ -14,8 +16,8 @@ gtdb_version = '226'
 
 cwd = Path('.').resolve()
 
-NCBI_TAXID = "1423"
-SPECIES = "Bacillus subtilis" 
+builtins.NCBI_TAXID = "1423"
+builtins.SPECIES = "Bacillus subtilis" 
 
 GENOME_FILES = Path('data/full/fasta/genomes').glob('*')
 GENOMES = [genome.stem for genome in GENOME_FILES]
@@ -54,6 +56,9 @@ COMBINED_METADATA = [str(METADATA_FILE).replace('complete_genomes','metadata').r
 PROTEIN_SPREADSHEET = ['data/full/protein_status.txt']
 COVERAGE_SPREADSHEET = ['data/full/protein_coverage.txt']
 
+REFINED_ACCESSIONS = ['data/full/refined_accessions.txt']
+REFINED = ["data/refined/done"]
+
 with open('data/full/id_mapping.json') as fh:
     json_map = load(fh)
 
@@ -63,7 +68,7 @@ for k,v in json_map.items():
         strain_map[v['accession']] = v['strain']
 
 rule all:
-    input: PROTEIN_BLAST_DB + BUSCOS + SKANI_PLOT + COMBINED_METADATA
+    input: PROTEIN_BLAST_DB + BUSCOS + SKANI_PLOT + COMBINED_METADATA + REFINED
 
 rule bakta_db:
     output: BAKTA_DB
@@ -266,10 +271,19 @@ rule combine_metadata:
         gtdbtk = GTDBTK, 
         protein_spreadsheet = PROTEIN_SPREADSHEET,
         protein_coverage = COVERAGE_SPREADSHEET,
-        common = 'bin/common.py'
+        common = 'bin/common.py' 
     params:
         metadata = METADATA_FILE
-    output: COMBINED_METADATA
+    output: 
+        metadata = COMBINED_METADATA,
+        accessions = REFINED_ACCESSIONS
     log: "workflow/logs/metadata_add_classification.log"
     run:
-        combine_metadata(params.metadata, input.protein_spreadsheet[0], input.protein_coverage[0], input[0], busco_lineage, busco_threshold, output[0])
+        combine_metadata(params.metadata, input.protein_spreadsheet[0], input.protein_coverage[0], input[0], busco_lineage, busco_threshold, output.metadata[0], output.accessions[0])
+
+rule refine_genome_selection:
+    input: 
+        accessions = REFINED_ACCESSIONS
+    output: "data/refined/done"
+    log: "workflow/logs/refine_genome_selection.log"
+    run: refine_genomes(input.accessions[0])

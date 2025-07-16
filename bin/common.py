@@ -7,6 +7,7 @@ import re
 from json import load,loads
 import gzip
 from pathlib import Path
+import subprocess
 
 from lxml import etree
 import pandas as pd
@@ -263,7 +264,7 @@ def format_header_cell(ws, cell, label):
     ws[cell].alignment = Alignment(horizontal = 'center', vertical = 'center')
 
 
-def combine_metadata(metadata, proteins, protein_coverage, classifications, busco_lineage, busco_threshold, output):
+def combine_metadata(metadata, proteins, protein_coverage, classifications, busco_lineage, busco_threshold, output, accessions_file):
 
     """
     Update metadata sheet to add GTDBTK classifications and BUSCO completeness, 
@@ -340,6 +341,9 @@ def combine_metadata(metadata, proteins, protein_coverage, classifications, busc
 
     metadata.to_excel(output, index = False)
 
+    accessions = metadata[metadata['Retain'] == 1]['Accession']
+    accessions.to_csv(accessions_file, sep = "\t", index = False)
+
     # Reread excel file and tweak...
     wb = load_workbook(output)
     ws = wb.active
@@ -369,3 +373,128 @@ def combine_metadata(metadata, proteins, protein_coverage, classifications, busc
     format_header_cell(ws, 'DZ1', 'rapP Protein Blast results')
 
     wb.save(output)
+
+def blast_index(fasta_dir, blast_dir, species, ncbi_taxid, index_type):
+    """
+    Creates a blast index for each genome fasta file contained within directory
+
+    Required parameters:
+        fasta_dir(Path): Location of fasta files
+        blast_dir(Path): Location of blast database
+        species(str): Species name
+        ncbi_taxid(str): NCBI taxonomy ID
+        index_type(str) : index type (nucl/prot)
+
+    Returns:
+        None
+    """
+    species_name=species.replace(' ','_')
+
+    if index_type not in ['nucl','prot']:
+        raise ValueError(f'Invalid index type provided ({index_type})')
+
+    accessions = []
+
+    db_stats = {'count': 0, 'length': 0}
+
+    if index_type == 'nucl':
+        title = f'TITLE {species} complete genomes'
+        meta_db = f'{blast_dir}/{species_name}_complete_genomes.nal'
+    else:
+        title  =  f"TITLE {species} complete proteome"
+        meta_db = f'{blast_dir}/{species_name}_proteins.pal'
+
+    fasta_files = fasta_dir.glob('*.fasta')
+    for fasta_file in fasta_files:
+        with open(fasta_file, 'r', encoding='UTF-8') as fh:
+            records = SeqIO.parse(fh, format = 'fasta')
+            for record in records:
+                db_stats['count'] += 1
+                db_stats['length'] += len(record.seq)
+
+        accession = fasta_file.name.replace('.fasta','')
+        accessions.append(accession)
+
+        cmd = ["makeblastdb",  "-in",  fasta_file, "-dbtype", index_type, "-out", blast_dir / Path(accession),
+               "-taxid", str(ncbi_taxid), "-title", accession]
+
+        try:
+            subprocess.run(cmd, check = True, capture_output = False)
+        except subprocess.CalledProcessError as e:
+            print(f"Index failed: {accession} - {e}")
+
+    accessions = ' '.join([f"{a}" for a in accessions])
+    index = f'''\
+{title}
+DBLIST {accessions}
+NSEQ {db_stats['count']}
+LENGTH {db_stats['length']}
+'''.strip()
+
+    with open(meta_db, 'w', encoding='UTF-8') as fh:
+        fh.writelines(index)
+
+def copy_genome(accession):
+    """
+    Copies genome data for selected accession into 'refined' area
+
+    Required params:
+        accession(str): Genome accession to copy
+
+    Returns:
+        None
+    """
+
+    annotation = Path(f"data/refined/annotations/{accession}")
+    fasta_genome = Path(f"data/refined/fasta/genomes/{accession}.fasta")
+    fasta_proteins = Path(f"data/refined/fasta/proteins/{accession}.fasta")
+
+    try:
+        annotation.symlink_to(f"../../../data/full/annotations/{accession}")
+    except FileExistsError as e:
+        print(f"{e}: {accession} genome symlink exists")
+
+
+    try:
+        fasta_genome.symlink_to(f"../../../../data/full/fasta/genomes/{accession}.fasta")
+    except FileExistsError as e:
+        print(f"{e}: {accession} fasta genome symlink exists")
+
+    try:
+        fasta_proteins.symlink_to(f"../../../../data/full/fasta/proteins/{accession}.fasta")
+    except FileExistsError as e:
+        print(f"{e}: {accession} protein genome symlink exists")
+
+def refine_genomes(accession_file):
+    """
+    Creates subset of genomes which meet filtering criteria, and creates
+    blast indexes of genomes and proteomes
+
+    Required params:
+        accessions_file: Path to file of accessions
+    
+    Returns:
+        None
+    """
+
+    data_root = Path("data/refined")
+
+    annotations_dir = Path(data_root / "annotations")
+    genome_fasta_dir =  Path(data_root / "fasta/genomes")
+    protein_fasta_dir =  Path(data_root / "fasta/proteins")
+    genome_blast_dir =  Path(data_root / "blast/genomes")
+    protein_blast_dir =  Path(data_root / "blast/proteins")
+
+    annotations_dir.mkdir(parents = True, exist_ok=True)
+    genome_fasta_dir.mkdir(parents = True, exist_ok = True)
+    protein_fasta_dir.mkdir(parents = True, exist_ok = True)
+    genome_blast_dir.mkdir(parents = True, exist_ok = True)
+    protein_blast_dir.mkdir(parents = True, exist_ok = True)
+
+    df = pd.read_csv(accession_file)
+    df['Accession'].apply(copy_genome)
+
+    blast_index(genome_fasta_dir, genome_blast_dir, SPECIES, NCBI_TAXID, 'nucl')
+    blast_index(protein_fasta_dir, protein_blast_dir, SPECIES, NCBI_TAXID, 'prot')
+
+    Path(data_root / "done").touch()
