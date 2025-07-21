@@ -1,0 +1,7 @@
+name: bsubtilis_phylogeny
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - bcgtree=1.2.1
+  - iqtree=3.0.1

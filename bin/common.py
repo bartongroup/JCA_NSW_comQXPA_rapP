@@ -465,13 +465,14 @@ def copy_genome(accession):
     except FileExistsError as e:
         print(f"{e}: {accession} protein genome symlink exists")
 
-def refine_genomes(accession_file):
+def refine_genomes(accession_file, bcgtree_config):
     """
     Creates subset of genomes which meet filtering criteria, and creates
     blast indexes of genomes and proteomes
 
     Required params:
         accessions_file: Path to file of accessions
+        bcgtree_config: Path to write bcgtree config file
     
     Returns:
         None
@@ -494,7 +495,12 @@ def refine_genomes(accession_file):
     df = pd.read_csv(accession_file)
     df['Accession'].apply(copy_genome)
 
-    blast_index(genome_fasta_dir, genome_blast_dir, SPECIES, NCBI_TAXID, 'nucl')
-    blast_index(protein_fasta_dir, protein_blast_dir, SPECIES, NCBI_TAXID, 'prot')
+    #blast_index(genome_fasta_dir, genome_blast_dir, SPECIES, NCBI_TAXID, 'nucl')
+    #blast_index(protein_fasta_dir, protein_blast_dir, SPECIES, NCBI_TAXID, 'prot')
 
-    Path(data_root / "done").touch()
+    proteomes = [f"--proteome {x}={protein_fasta_dir}/{x}.fasta" for x in df['Accession']]
+    proteomes = " ".join(proteomes)
+    proteomes = "--proteome GCA_003868675=reference_sequences/outgroup/GCA_003868675.faa " + proteomes
+
+    with open (bcgtree_config, 'w', encoding='UTF-8') as out_fh:
+        out_fh.write(proteomes)
