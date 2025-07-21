@@ -38,6 +38,10 @@ BAKTA_SUFFIXES = ['tsv', 'gff3', 'gbff', 'embl', 'fna', 'ffn', 'faa',
     'hypotheticals.tsv', 'hypotheticals.faa', 'json', 'txt', 'png', 'svg']
 BAKTA_ANNOTS = expand('data/full/annotations/{genome}/{genome}.{suffix}', genome = GENOMES, suffix = BAKTA_SUFFIXES)
 
+# An outgroup for phylogeny...
+OUTGROUP_FASTA = ["reference_sequences/outgroup/GCA_003868675.fa"]
+OUTGROUP_ANNOTS = expand('reference_sequences/outgroup/GCA_003868675.{suffix}', suffix = BAKTA_SUFFIXES)
+
 PROTEIN_FASTA = expand('data/full/fasta/proteins/{genome}.fasta', genome = GENOMES)
 PROTEIN_BLAST_SUFFIXES = ['pdb','phr','pin','pjs','pot','psq','ptf','pto']
 PROTEIN_BLAST_DB = expand('data/full/blast_db/proteins/{genome}.{suffix}', genome = GENOMES, suffix = PROTEIN_BLAST_SUFFIXES)
@@ -57,7 +61,9 @@ PROTEIN_SPREADSHEET = ['data/full/protein_status.txt']
 COVERAGE_SPREADSHEET = ['data/full/protein_coverage.txt']
 
 REFINED_ACCESSIONS = ['data/full/refined_accessions.txt']
-REFINED = ["data/refined/done"]
+BCGTREE_CONFIG = ["results/phylogeny/bcgtree.config"]
+
+#GENOME_TREE = "results/phylogeny/full_alignment.concat.partition.best_scheme.nex.treefile"
 
 with open('data/full/id_mapping.json') as fh:
     json_map = load(fh)
@@ -68,13 +74,50 @@ for k,v in json_map.items():
         strain_map[v['accession']] = v['strain']
 
 rule all:
-    input: PROTEIN_BLAST_DB + BUSCOS + SKANI_PLOT + COMBINED_METADATA + REFINED
+    input: OUTGROUP_ANNOTS + PROTEIN_BLAST_DB + BUSCOS + SKANI_PLOT + COMBINED_METADATA + BCGTREE_CONFIG
+
+rule outgroup_seq:
+    output: OUTGROUP_FASTA
+    log: 'workflow/logs/outgroup_seq.log'
+    shell: '''
+    wget -O - https://ftp.ensemblgenomes.ebi.ac.uk/pub/bacteria/release-61/fasta/bacteria_29_collection/bacillus_amyloliquefaciens_gca_003868675/dna/Bacillus_amyloliquefaciens_gca_003868675.ASM386867v1_.dna.toplevel.fa.gz | \
+        gunzip -c > {output}
+    '''
 
 rule bakta_db:
     output: BAKTA_DB
     singularity: "docker://quay.io/biocontainers/bakta:1.11.0--pyhdfd78af_0"
     log: 'workflow/logs/bakta_db.log'
     shell: 'bakta_db download --type full -o databases/bakta > {log} 2>&1'
+
+rule outgroup_bakta:
+    input: 
+        fasta = OUTGROUP_FASTA,
+        db = BAKTA_DB
+    output: 'reference_sequences/outgroup/GCA_003868675.tsv', 'reference_sequences/outgroup/GCA_003868675.gff3', 
+            'reference_sequences/outgroup/GCA_003868675.gbff', 'reference_sequences/outgroup/GCA_003868675.embl', 
+            'reference_sequences/outgroup/GCA_003868675.fna', 'reference_sequences/outgroup/GCA_003868675.ffn',
+            'reference_sequences/outgroup/GCA_003868675.faa', 'reference_sequences/outgroup/GCA_003868675.hypotheticals.tsv', 
+            'reference_sequences/outgroup/GCA_003868675.hypotheticals.faa', 'reference_sequences/outgroup/GCA_003868675.json', 
+            'reference_sequences/outgroup/GCA_003868675.txt', 'reference_sequences/outgroup/GCA_003868675.png', 
+            'reference_sequences/outgroup/GCA_003868675.svg'
+    singularity: "docker://quay.io/biocontainers/bakta:1.11.0--pyhdfd78af_0"
+    log: 'workflow/logs/bakta.outgroup.log'
+    shell: """
+bakta --db databases/bakta/db \
+      --prefix GCA_003868675 \
+      --genus Bacillus \
+      --species amyloliquefaciens \
+      --threads {resources.threads} \
+      --force \
+      --keep-contig-headers \
+      --output reference_sequences/outgroup \
+      {input.fasta} \
+      > {log} 2>&1
+    """
+
+
+
 
 rule bakta:
     input: 
@@ -271,7 +314,7 @@ rule combine_metadata:
         gtdbtk = GTDBTK, 
         protein_spreadsheet = PROTEIN_SPREADSHEET,
         protein_coverage = COVERAGE_SPREADSHEET,
-        common = 'bin/common.py' 
+#        common = 'bin/common.py'  TODO: uncomment me!
     params:
         metadata = METADATA_FILE
     output: 
@@ -283,7 +326,18 @@ rule combine_metadata:
 
 rule refine_genome_selection:
     input: 
-        accessions = REFINED_ACCESSIONS
-    output: "data/refined/done"
+        accessions = REFINED_ACCESSIONS,
+        outgroup = OUTGROUP_ANNOTS,
+        common = "bin/common.py"
+    output: "results/phylogeny/bcgtree.config"
     log: "workflow/logs/refine_genome_selection.log"
-    run: refine_genomes(input.accessions[0])
+    run: refine_genomes(input.accessions[0], output[0])
+
+#rule genome_tree:
+#    input: "results/phylogeny/bcgtree.config"
+#    output: "results/phylogeny/full_alignment.concat.partition.best_scheme.nex.treefile"
+#    log: "workflow/logs/genome_tree.log"
+#    singularity: "docker://quay.io/biocontainers/bcgtree:1.2.1--pl5321hdfd78af_0"
+#    shell: """
+#bcgTree @{input} --outdir results/phylogeny
+#"""
