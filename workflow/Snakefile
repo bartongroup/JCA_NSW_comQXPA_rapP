@@ -332,12 +332,3 @@ rule refine_genome_selection:
     output: "results/phylogeny/bcgtree.config"
     log: "workflow/logs/refine_genome_selection.log"
     run: refine_genomes(input.accessions[0], output[0])
-
-#rule genome_tree:
-#    input: "results/phylogeny/bcgtree.config"
-#    output: "results/phylogeny/full_alignment.concat.partition.best_scheme.nex.treefile"
-#    log: "workflow/logs/genome_tree.log"
-#    singularity: "docker://quay.io/biocontainers/bcgtree:1.2.1--pl5321hdfd78af_0"
-#    shell: """
-#bcgTree @{input} --outdir results/phylogeny
-#"""
