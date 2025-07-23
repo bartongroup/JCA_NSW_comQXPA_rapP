@@ -41,6 +41,7 @@ BAKTA_ANNOTS = expand('data/full/annotations/{genome}/{genome}.{suffix}', genome
 # An outgroup for phylogeny...
 OUTGROUP_FASTA = ["reference_sequences/outgroup/GCA_003868675.fa"]
 OUTGROUP_ANNOTS = expand('reference_sequences/outgroup/GCA_003868675.{suffix}', suffix = BAKTA_SUFFIXES)
+OUTGROUP_TARGETS = expand('reference_sequences/outgroup/target_proteins/{gene}.fasta', gene = ['comA', 'comP', 'comX', 'comQ'])
 
 PROTEIN_FASTA = expand('data/full/fasta/proteins/{genome}.fasta', genome = GENOMES)
 PROTEIN_BLAST_SUFFIXES = ['pdb','phr','pin','pjs','pot','psq','ptf','pto']
@@ -63,8 +64,6 @@ COVERAGE_SPREADSHEET = ['data/full/protein_coverage.txt']
 REFINED_ACCESSIONS = ['data/full/refined_accessions.txt']
 BCGTREE_CONFIG = ["results/phylogeny/bcgtree.config"]
 
-#GENOME_TREE = "results/phylogeny/full_alignment.concat.partition.best_scheme.nex.treefile"
-
 with open('data/full/id_mapping.json') as fh:
     json_map = load(fh)
 
@@ -74,7 +73,7 @@ for k,v in json_map.items():
         strain_map[v['accession']] = v['strain']
 
 rule all:
-    input: OUTGROUP_ANNOTS + PROTEIN_BLAST_DB + BUSCOS + SKANI_PLOT + COMBINED_METADATA + BCGTREE_CONFIG
+    input: OUTGROUP_TARGETS + PROTEIN_BLAST_DB + BUSCOS + SKANI_PLOT + COMBINED_METADATA + BCGTREE_CONFIG
 
 rule outgroup_seq:
     output: OUTGROUP_FASTA
@@ -115,9 +114,6 @@ bakta --db databases/bakta/db \
       {input.fasta} \
       > {log} 2>&1
     """
-
-
-
 
 rule bakta:
     input: 
@@ -292,6 +288,19 @@ rule extract_protein_sequences:
 {input.script} -d data/full -m {input.metadata} > {log} 2>&1
 """
 
+rule extract_outgroup_sequences:
+    input:
+        script = "bin/extract_outgroup_sequences.py",
+        outgroup = OUTGROUP_ANNOTS
+    output: "reference_sequences/outgroup/target_proteins/comA.fasta",
+            "reference_sequences/outgroup/target_proteins/comP.fasta",
+            "reference_sequences/outgroup/target_proteins/comQ.fasta",
+            "reference_sequences/outgroup/target_proteins/comX.fasta"
+    log: "workflow/logs/extract_outgroup_sequences.log"
+    shell: """
+    {input.script} -d reference_sequences/outgroup > {log} 2>&1
+"""
+
 rule check_protein_sequences:
     input:  
         script = "bin/check_protein_sequences.py",
@@ -314,13 +323,13 @@ rule combine_metadata:
         gtdbtk = GTDBTK, 
         protein_spreadsheet = PROTEIN_SPREADSHEET,
         protein_coverage = COVERAGE_SPREADSHEET,
-#        common = 'bin/common.py'  TODO: uncomment me!
+        common = 'bin/common.py'
     params:
         metadata = METADATA_FILE
     output: 
         metadata = COMBINED_METADATA,
         accessions = REFINED_ACCESSIONS
-    log: "workflow/logs/metadata_add_classification.log"
+    log: "workflow/logs/combine_metadata.log"
     run:
         combine_metadata(params.metadata, input.protein_spreadsheet[0], input.protein_coverage[0], input[0], busco_lineage, busco_threshold, output.metadata[0], output.accessions[0])
 

@@ -13,10 +13,12 @@ from lxml import etree
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment
+from Bio.SeqRecord import SeqRecord
+from Bio.Seq import Seq
+from Bio import SeqIO
 
 import requests
 from requests.adapters import HTTPAdapter, Retry
-from Bio import SeqIO
 
 def make_request(uri):
 
@@ -374,6 +376,186 @@ def combine_metadata(metadata, proteins, protein_coverage, classifications, busc
 
     wb.save(output)
 
+def get_qualifier(name, feature):
+
+    """
+    Extracts a qualifier value from a feature for a given name
+
+    Required params:
+        name(str): qualifier name
+        feature(Bio::SeqFeature): feature of interest
+    """
+
+    if feature.qualifiers.get(name):
+        return feature.qualifiers.get(name)[0]
+
+    return None
+
+
+def extract_feature_details(feature):
+
+    """
+    Pulls required fields from feature object
+
+    Required parameters: 
+        feature(Bio::SeqFeature): feature of interest
+    
+    returns:
+        feature_info(dict): Dictionary containing required fields
+    """
+
+    feature_info = {
+        'location':  f"{feature.location.start}-{feature.location.end}"
+    }
+
+    translation = get_qualifier('translation', feature)
+    feature_info['translation'] = translation
+    if translation is not None:
+        feature_info['cds_length'] = len(translation)
+
+    feature_info['gene_id'] = get_qualifier('gene', feature)
+    feature_info['product'] = get_qualifier('product', feature)
+
+    feature_info['pseudogene'] = get_qualifier('pseudogene', feature)
+
+    if feature.qualifiers.get('note') and feature_info['pseudogene']:
+        feature_info['note'] = feature.qualifiers.get('note')[-1]
+    else:
+        feature_info['note'] = None
+
+    feature_info['locus_tag'] = get_qualifier('locus_tag', feature)
+
+    return feature_info
+
+def extract_cds_details(cds_info, record, accession, gene_name):
+
+    """
+    Extracts details from CDS features, including creating sequence
+    object from translation
+
+    Required fields:
+        cds_info(dict): Dict of details of CDS
+        record(SeqRecord): Parent record for CDS feature
+        accession(str): Genome accession
+
+    Returns:
+        cds_info(dict): Updated dict
+        protein(Bio::SeqRecord): Sequence of protein translation
+    """
+
+    protein = None
+
+    cds_info['record_id'] = record.id
+    cds_info['genomic_context'] = 'chromosome'
+    if 'plasmid' in record.description:
+        cds_info['genomic_context'] = 'plasmid'
+    gene_id = cds_info.get("gene_id")
+    if gene_id is None:
+        gene_id = gene_name
+    gene_id = f'{accession}_{gene_id}'
+
+    if cds_info.get('translation'):
+
+        protein = SeqRecord(
+            Seq(cds_info['translation']),
+                id = gene_id,
+                description = cds_info.get('product'),
+                annotations={'molecule_type': "protein"}
+        )
+
+    return(cds_info, protein)
+
+def get_target_sequences(genome):
+
+    """
+    Parses the genome record to extract required sequences
+
+    required parameters:
+        genome(libpath.Path): Path to record
+
+    returns:
+        accession(str): accession of record
+        gene_info(dict): metadata dictionary keyed on gene name
+        cds_seqs(dict): dict of Bio::Seq objects keyed on gene name
+    """
+
+    gene_info = {}
+    cds_seqs = {}
+    prot_seqs = {}
+
+    accession = str(genome.stem).replace('.embl','')
+    with open(genome, 'rt', encoding='UTF-8') as fh:
+
+        for record in SeqIO.parse(fh, format = 'embl'):
+
+        #comP and comQ are not reliably annotated, however comX is present in
+        #every annotation so use this to identify the location of the operon
+
+            for index, feature in enumerate(record.features):
+
+                if feature.type == 'gene' and 'gene' in feature.qualifiers.keys():
+                    if 'comX' in feature.qualifiers.get('gene')[0]:
+                        comX_gene_index = index
+                        cds_indices = {}
+
+                        # The operon is generally on the -ve strand, but there are
+                        # some cases where it is positive
+
+                        # Since we have consistent annotation formats, we should
+                        # be able to rely on the surrounding features being the
+                        # comX CDS, and the comP and comQ genes and CDSs, which
+                        # helps given some sequences are fairly divergent
+
+                        if feature.location.strand== -1:
+
+                            gene_info['strand']='-'
+                            cds_indices['comX'] = comX_gene_index + 1
+                            cds_indices['comP'] = comX_gene_index - 1
+                            cds_indices['comQ'] = comX_gene_index + 3
+                            cds_indices['comA'] = comX_gene_index - 3
+                        else:
+
+                            gene_info['strand']='+'
+                            cds_indices['comX'] = comX_gene_index + 1
+                            cds_indices['comP'] = comX_gene_index + 3
+                            cds_indices['comQ'] = comX_gene_index - 1
+                            cds_indices['comA'] = comX_gene_index + 5
+
+                        for index, feature in cds_indices.items():
+
+                            cds_info = extract_feature_details(record.features[feature])
+
+                            # comP frameshifts can not only cause a truncation, but also a second product from the 3' region,
+                            # which screws up comA positioning, as do transposase insertions within comP
+
+                            # These checks work with all available genomes at the time of writing but changes may be required
+                            # in the light of novel sequences being produced
+                            if index == 'comA':
+                                if not cds_info['product']:
+                                    print(f"{record.id}: No product available" )
+                                elif 'histidine kinase' in cds_info['product'] or 'hypothetical protein' in cds_info['product']:
+                                    if gene_info['strand']=='-':
+                                        cds_info = extract_feature_details(record.features[comX_gene_index-5])
+                                    else:
+                                        cds_info = extract_feature_details(record.features[comX_gene_index+7])
+                                elif 'transposase' in cds_info['product']:
+                                    if gene_info['strand']=='-':
+                                        cds_info = extract_feature_details(record.features[comX_gene_index-7])
+                                    else:
+                                        cds_info = extract_feature_details(record.features[comX_gene_index+9])
+
+                            gene_info[index], prot_seqs[index] = extract_cds_details(cds_info, record, accession, index)
+
+                # rapP does not seem to be annotated with a gene name by bakta, but does have
+                # a product attached to CDS features
+                elif feature.type == 'CDS' and 'product' in feature.qualifiers.keys() and \
+                    feature.qualifiers.get('product')[0] == 'Rap phosphatase':
+
+                    cds_info = extract_feature_details(feature)
+                    gene_info['rapP'], prot_seqs['rapP'] = extract_cds_details(cds_info, record, accession, 'rapP')
+
+    return(accession, gene_info, cds_seqs, prot_seqs)
+
 def blast_index(fasta_dir, blast_dir, species, ncbi_taxid, index_type):
     """
     Creates a blast index for each genome fasta file contained within directory
@@ -436,7 +618,7 @@ LENGTH {db_stats['length']}
 
 def copy_genome(accession):
     """
-    Copies genome data for selected accession into 'refined' area
+    Symlinks genome data for selected accession into 'refined' area
 
     Required params:
         accession(str): Genome accession to copy
@@ -465,6 +647,29 @@ def copy_genome(accession):
     except FileExistsError as e:
         print(f"{e}: {accession} protein genome symlink exists")
 
+def copy_target_proteins(accession):
+    """
+    Symlinks target protein sequences extracted from each genome for selected
+    accession into 'refined' area 
+    
+    Required params:
+        accession(str): genome accession to copy
+    
+    Returns:
+        None
+    """
+
+    for gene in ["comP", "comQ", "comA", "comX", "rapP"]:
+        source_file = Path(f"data/full/fasta/target_proteins/{gene}/{accession}.fasta")
+        target_file = Path(f"data/refined/fasta/target_proteins/{gene}/{accession}.fasta")
+        if source_file.exists():
+            try:
+                target_file.symlink_to(Path("../../../../../" / source_file))
+            except FileExistsError as e:
+                print(f"{e}: {accession} fasta protein symlink exists")
+        else:
+            print(f"{source_file} not found")
+
 def refine_genomes(accession_file, bcgtree_config):
     """
     Creates subset of genomes which meet filtering criteria, and creates
@@ -485,18 +690,25 @@ def refine_genomes(accession_file, bcgtree_config):
     protein_fasta_dir =  Path(data_root / "fasta/proteins")
     genome_blast_dir =  Path(data_root / "blast/genomes")
     protein_blast_dir =  Path(data_root / "blast/proteins")
+    target_protein_dir = Path(data_root / "fasta/target_proteins")
 
     annotations_dir.mkdir(parents = True, exist_ok=True)
     genome_fasta_dir.mkdir(parents = True, exist_ok = True)
     protein_fasta_dir.mkdir(parents = True, exist_ok = True)
     genome_blast_dir.mkdir(parents = True, exist_ok = True)
     protein_blast_dir.mkdir(parents = True, exist_ok = True)
+    target_protein_dir.mkdir(parents = True, exist_ok = True)
+
+    for gene in ["comP", "comQ", "comA", "comX", "rapP"]:
+        protein_dir = Path(target_protein_dir / gene)
+        protein_dir.mkdir(exist_ok = True)
 
     df = pd.read_csv(accession_file)
     df['Accession'].apply(copy_genome)
+    df['Accession'].apply(copy_target_proteins)
 
-    #blast_index(genome_fasta_dir, genome_blast_dir, SPECIES, NCBI_TAXID, 'nucl')
-    #blast_index(protein_fasta_dir, protein_blast_dir, SPECIES, NCBI_TAXID, 'prot')
+    blast_index(genome_fasta_dir, genome_blast_dir, SPECIES, NCBI_TAXID, 'nucl')
+    blast_index(protein_fasta_dir, protein_blast_dir, SPECIES, NCBI_TAXID, 'prot')
 
     proteomes = [f"--proteome {x}={protein_fasta_dir}/{x}.fasta" for x in df['Accession']]
     proteomes = " ".join(proteomes)
