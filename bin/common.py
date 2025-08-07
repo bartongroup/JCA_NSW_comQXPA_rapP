@@ -524,7 +524,6 @@ def get_target_sequences(genome):
                         for index, feature in cds_indices.items():
 
                             cds_info = extract_feature_details(record.features[feature])
-
                             # comP frameshifts can not only cause a truncation, but also a second product from the 3' region,
                             # which screws up comA positioning, as do transposase insertions within comP
 
@@ -543,6 +542,15 @@ def get_target_sequences(genome):
                                         cds_info = extract_feature_details(record.features[comX_gene_index-7])
                                     else:
                                         cds_info = extract_feature_details(record.features[comX_gene_index+9])
+
+                            if index == 'comQ':
+                                if 'transposase' in cds_info['product']:
+                                    if 'product' in cds_info and cds_info['product'] == "IS4 transposase":
+                                        cds_info = extract_feature_details(record.features[comX_gene_index+7])
+                                    elif gene_info['strand']=='-':
+                                        cds_info = extract_feature_details(record.features[comX_gene_index+2])
+                                    else:
+                                        print(f"Unhandled trasnsposase found...{str(cds_info)}")
 
                             gene_info[index], prot_seqs[index] = extract_cds_details(cds_info, record, accession, index)
 
