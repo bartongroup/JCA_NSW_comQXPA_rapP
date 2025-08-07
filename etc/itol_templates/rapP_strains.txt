@@ -1,0 +1,42 @@
+Genome Accession	locus_tag_rapP	N or T	Chromosome_plasmid	Bacillus_subtilis_strain	rapP
+GCA_000782835	DHGJAP_06510	N	chromosome	Bacillus subtilis strain SG6	1
+GCA_004103595	HFFNJH_06975	N	chromosome	Bacillus subtilis strain SRCM103571	1
+GCA_004119535	NLFCEF_01284	N	chromosome	Bacillus subtilis strain SRCM103689	1
+GCA_004119675	PCEMKJ_04390	N	plasmid	Bacillus subtilis strain SRCM103773	1
+GCA_004119835	CCJLKO_21470	N	plasmid	Bacillus subtilis strain SRCM103622	1
+GCA_009913255	EBCDPB_05320	N	chromosome	Bacillus subtilis strain SRCM102753	1
+GCA_009913555	EDJBLG_21375	N	plasmid	Bacillus subtilis strain SRCM102750	1
+GCA_013285325	LBIEFJ_06455	N	chromosome	Bacillus subtilis strain JCL16	1
+GCA_022097155	MEMEID_10725	N	chromosome	Bacillus subtilis strain JS12 Scaffold_1	1
+GCA_022453545	KHJMMF_01292	N	chromosome	Bacillus subtilis strain YB-15	1
+GCA_025502505	IFAPNJ_21270	N	plasmid	Bacillus subtilis strain SRCM116268	1
+GCA_025502545	EIGJNI_04230	N	plasmid	Bacillus subtilis strain SRCM116301	1
+GCA_029536815	NDAOEL_03956	N	chromosome	Bacillus subtilis strain PRO31	1
+GCA_029536855	CGDOED_03955	N	chromosome	Bacillus subtilis strain PRO120	1
+GCA_029857255	JCCDOC_18195	N	chromosome	Bacillus subtilis strain PRO117 contig_4	1
+GCA_032598945	PNFAMK_04253	N	plasmid	Bacillus subtilis strain 6D1	1
+GCA_037201685	KCDDHN_06525	N	chromosome	Bacillus subtilis strain MC4-2	1
+GCA_037201935	ACLCML_21645	N	plasmid	Bacillus subtilis strain YT1	1
+GCA_039620435	KLDDGE_04780	N	plasmid	Bacillus subtilis strain FUA2231	1
+GCA_039621185	LNMPKH_23610	N	plasmid	Bacillus subtilis strain FUA2232	1
+GCA_039621415	DDKHDB_04844	N	plasmid	Bacillus subtilis strain FUA2233	1
+GCA_041261645	EDAJAB_15345	N	chromosome	Bacillus subtilis strain soilG2B TE3179 Ga0532237_01	1
+GCA_049368775	LOBHJK_00280	N	chromosome	Bacillus subtilis strain 37 contig_3	1
+GCA_905310975	JJNHMG_06855	N	chromosome	Bacillus subtilis isolate NRS6085	1
+GCA_905311035	AEOPIO_00060	N	plasmid	Bacillus subtilis isolate NRS6096	1
+GCA_905312035	JEAFEB_01377	N	chromosome	Bacillus subtilis isolate NRS6120	1
+GCA_905315015	BOCNOG_00091	N	plasmid	Bacillus subtilis isolate NRS6132	1
+GCA_905315685	CCJAEA_00230	N	plasmid	Bacillus subtilis isolate NRS6145	1
+GCA_905318255	HBNNBD_00095	N	plasmid	Bacillus subtilis isolate NRS6181	1
+GCA_905319135	DAFHEO_00050	N	plasmid	Bacillus subtilis isolate NRS6186	1
+GCA_002055965	ONAFPO_04417	T	plasmid	Bacillus subtilis strain NCIB 3610	1
+GCA_006088795	PDLGAF_22355	T	plasmid	Bacillus subtilis subsp. subtilis str. NCIB 3610	1
+GCA_006741845	EIAAFB_22130	T	plasmid	Bacillus subtilis subsp. subtilis NBRC 13719 D	1
+GCA_009662415	MKBNKM_22080	T	plasmid	Bacillus subtilis strain P8_B3	1
+GCA_009662435	IMHBLK_22090	T	plasmid	Bacillus subtilis strain P8_B1	1
+GCA_019931715	LAEJFA_21970	T	plasmid	Bacillus subtilis strain FJAT-4	1
+GCA_029027845	GKDNBI_22325	T	plasmid	Bacillus subtilis strain NCIB 3610	1
+GCA_029537415	BLICDF_04435	T	plasmid	Bacillus subtilis strain DSM 10	1
+GCA_030643765	ADFJFG_04456	T	plasmid	Bacillus subtilis strain JD-014	1
+GCA_037914925	ABIINA_22070	T	plasmid	Bacillus subtilis strain DSM 10	1
+GCA_049860545	OGODBH_21910	T	plasmid	Bacillus subtilis subsp. subtilis strain NRCB002	1

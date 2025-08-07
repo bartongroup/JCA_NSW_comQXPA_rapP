@@ -41,6 +41,12 @@ data
 drmaa_logs
 report.html
 reference_sequences/outgroup
+NRSW_tree
+
+etc/itol_templates/comP_variant_type.txt
+etc/itol_templates/overall_status.txt
+etc/itol_templates/rapP_NT_status.txt
+etc/itol_templates/comP_status.txt
 
 # pixi environments
 .pixi
