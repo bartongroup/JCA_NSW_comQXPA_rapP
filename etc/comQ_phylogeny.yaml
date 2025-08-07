@@ -1,0 +1,7 @@
+name: comQ_phylogeny
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - muscle=5.3 
+  - iqtree=3.0.1
