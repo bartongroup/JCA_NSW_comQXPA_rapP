@@ -12,13 +12,16 @@ not present
 """
 
 from pathlib import Path
+import gzip
 import json
 import pickle
 import re
 import sys
 
 from Bio import SeqIO
+from Bio import SearchIO
 import click
+import pandas as pd
 from tqdm import tqdm
 
 sys.tracebacklimit = 1
@@ -123,6 +126,134 @@ def parse_genomes(genome_dir):
 
     return data
 
+def get_match(string, match_re):
+
+    """
+    Searches a string with an re and returns the first match group
+
+    Required params:
+        string(str): query string 
+        match_re(re): compiled re
+    
+    Returns:
+        match(str): Contents of 1st match group
+    """
+    matches = re.search(match_re, string)
+
+    if matches:
+        match = matches.group(1)
+    else:
+        match = 'Unknown'
+
+    return match
+
+def get_spanned_genes(annotation_dir, assembly_accession, seq_accession, start, end):
+
+    """
+    Extracts names of genes spanned by hit
+
+    Required params:
+        annotation_dir(Path): Path to annotation directory
+        assembly_accession(str): GCA accession 
+        seq_accession(str): ID of sequence within assembly
+        start(str): Start co-ordinate
+        end(str): End co-ordinate
+    
+    Returns:
+        genes(str): Comma-separated list of gene names
+    """
+
+    gff_file = annotation_dir / assembly_accession / f"{assembly_accession}.gff3"
+    gff_cols=('seqid', 'source', 'type', 'start', 'end', 'score', 'strand',
+              'phase', 'attributes')
+    gff_df = pd.read_csv(gff_file, sep="\t", comment='#', header=0, names=gff_cols, low_memory=False)
+
+    gff = gff_df[(gff_df['seqid'].str.contains(seq_accession)) & (gff_df['type'] == 'CDS') &
+              (gff_df['start'] >= int(start)) & (gff_df['end'] <= int(end))]
+
+    gene_re = re.compile(r'gene=([a-zA-Z0-9]*)$')
+
+    genes = gff.apply(lambda x: get_match(x['attributes'], gene_re), axis=1)
+
+    if not genes.empty:
+        genes = ','.join([x for x in genes])
+        return genes
+
+def parse_blast(genome_path, record, mapping):
+
+    """
+    Parses a blast record
+    
+    Required parameters:
+        genome_path(Path): Path to genome directory
+        record(pathlib.Path): Path to results file
+        mapping(dict): Parsed seq id -> accession info mapping
+
+    Returns:
+        parsed_df(pd.DataFrame): DataFrame of parsed results
+    """
+
+    parsed_outputs = []
+    with record.open() as fh:
+        results = SearchIO.parse(fh, 'blast-tab')
+        for result in results:
+
+            # collect overall hit span 
+            start_loc, end_loc = 0, 0
+
+            for hit in result.hits:
+
+                seq_accession = hit.id.split('|')[2]
+                seq_info = mapping[seq_accession]
+                assembly_accession = seq_info['accession']
+                strain = seq_info['strain']
+
+                for hsp in hit.hsps:
+                    # we don't care about no steenking strand...
+                    start = min(hsp.hit_start, hsp.hit_end)
+                    end = max(hsp.hit_start, hsp.hit_end)
+
+                    start_loc = max(start, start_loc)
+                    end_loc = max(end, end_loc)
+
+                    pident = hsp.ident_pct
+                    span = hsp.hit_span
+                    mismatches = hsp.mismatch_num
+                    gaps = hsp.gapopen_num
+                    qstart = int(hsp.query_start) + 1
+                    qend = hsp.query_end
+                    hstart = int(hsp.hit_start) + 1
+                    hend = hsp.hit_end
+                    evalue = hsp.evalue
+                    bitscore = hsp.bitscore
+
+                genes = get_spanned_genes(genome_path, assembly_accession, seq_accession, start, end)
+
+                description = f"Assembly {assembly_accession}; Strain {strain};"
+                if genes:
+                    description = f"{description}; Includes genes {genes}"
+                hit.description = description
+
+                parsed_results = {
+                    'query_id': hit.query_id,
+                    'hit_id': hit.id,
+                    'pident': pident,
+                    'span': span,
+                    'mismatches': mismatches,
+                    'gaps': gaps,
+                    'qstart': qstart,
+                    'qend': qend,
+                    'hstart': hstart,
+                    'hend': hend,
+                    'evalue': evalue,
+                    'bitscore': bitscore,
+                    'description': description
+                }
+                parsed_outputs.append(parsed_results)
+
+    parsed_df = pd.DataFrame(parsed_outputs)
+    return parsed_df
+
 @click.group()
 def cli():
     """Command line tool to extract information from the combined B.subtilis database"""
@@ -163,14 +294,21 @@ def build(genome_path, id_map, db, force):
 @click.option('--db', type=click.Path(exists=False, file_okay=True, dir_okay=False, path_type=Path),
               required=False, help="Path to serialised database", default='data/full/bs_genome_info.pkl')
 @click.option('--tags', type=str, required=True, help="Comma-separated list of locus tags")
-@db.command('info')
-def info(db, tags):
+@click.option('--output', type=click.Path(exists=False, file_okay=True, dir_okay=False, path_type=Path),
+              required=False, help="Path to output file", default=None)
+@db.command('tag_info')
+def tag_info(db, tags, output):
     """
     Query the database for information on a locus tag
+    Reports gene, product, genome accession, organism, sequence id, length,
+    coordinates and strand for the assicated gene
+    """
 
+    """
     Required arguments:
         db(Path): Path to serialised JSON database
         ids(str): Comma-separated list of locus tags
+        output(Path): Path to output file (optional)
     """
     if not Path(db).exists():
         raise FileNotFoundError(f"File '{db}' not found - please build the database first")
@@ -181,19 +319,35 @@ def info(db, tags):
     if isinstance(tags, str):
         tags = tags.split(',')
 
+    outputs = []
     for locus_id in tags:
 
         tag = locus_id.split('_')[0]
         if tag in data['locus_tags'].keys():
 
             locus_data = data['locus_tags'][tag]['genes'][locus_id]
-            fields = (locus_id, data['locus_tags'][tag]['accession'], data['locus_tags'][tag]['organism'],
-                    f"gene: {locus_data['gene']}", locus_data['product'], locus_data['sequence_id'], str(locus_data['sequence_length']),
-                    locus_data['coordinates'], str(locus_data['strand']))
 
-            print("\t".join(fields))
-        else:
-            print(tag)
+            fields = {
+                'Locus tag': locus_id,
+                'Genome accession': data['locus_tags'][tag]['accession'],
+                'Organism': data['locus_tags'][tag]['organism'],
+                'Gene': locus_data['gene'],
+                'Product': locus_data['product'],
+                'Sequence ID': locus_data['sequence_id'],
+                'Sequence length': locus_data['sequence_length'],
+                'Coordinates': locus_data['coordinates'],
+                'Strand': locus_data['strand']
+            }
+            outputs.append(fields)
+
+    outputs_df = pd.DataFrame(outputs)
+
+    if len(outputs) == 0:
+        raise RuntimeError("No matching records found") 
+
+    if output:
+        outputs_df.to_csv(output, sep="\t", index=False)
+
 
 @click.option('--db', type=click.Path(exists=False, file_okay=True, dir_okay=False, path_type=Path),
               required=False, help="Path to serialised database", default='data/full/bs_genome_info.pkl')
@@ -205,6 +359,17 @@ def info(db, tags):
 
 @db.command('fasta')
 def fasta(db, tags, protein_dir, outfile):
+    """
+    Extract protein sequences for a list of locus tags
+    """
+
+    """
+    Required arguments:
+        db(Path): Path to serialised JSON database
+        tags(str): Comma-separated list of locus tags
+        protein_dir(Path): Path to directory of protein sequences
+        outfile(Path): Path to output file
+    """
 
     with open(db, 'rb') as fh:
         data = pickle.load(fh)
@@ -226,6 +391,51 @@ def fasta(db, tags, protein_dir, outfile):
 
     with open(outfile, 'w', encoding='UTF-8') as outfh:
         SeqIO.write(output_records, outfh, format='fasta')
+
+@cli.group()
+def blast():
+    """Commands relating to the blast result handling"""
+    pass
+
+@click.option('--genome_path', type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+              required=False, help="Path to genome directory", default='data/full/annotations/')
+@click.option('--db', type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
+              required=False, help="Path to serialised database", default='data/full/bs_genome_info.pkl')
+@click.option('--blast', type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
+              required=True, help="Path to tab-delimited blast results file")
+@click.option('--output', type=click.Path(exists=False, file_okay=True, dir_okay=False, path_type=Path),
+              required=True, help="Path to output file", default=None)
+
+@blast.command('genome_hit_info')
+def genome_hit_info(genome_path, db, blast, output):
+    """
+    Parses a blast results file to identify genes spanned by hits, and annotates
+    hits with genome accession/strain and any genes spanned by the hit
+    """
+
+    """
+    Required arguments:
+        genome_path(Path): Path to genome directory
+        db(Path): Path to serialised JSON database
+        blast(Path): Path to tab-delimited blast results file
+        output(Path): Path to output file
+    """
+
+    if not Path(db).exists():
+        raise FileNotFoundError(f"File '{db}' not found - please build the database first")
+
+    with open(db, 'rb') as fh:
+        data = pickle.load(fh)
+
+    mapping = data['id_map']
+
+    record = Path(blast)
+    parsed_df = parse_blast(genome_path, record, mapping)
+
+    if parsed_df.empty:
+        raise RuntimeError("No results found in blast file")
+
+    parsed_df.to_csv(output, sep="\t", index=False)
 
 if __name__ == '__main__':
     cli()
