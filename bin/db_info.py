@@ -25,7 +25,9 @@ import click
 import pandas as pd
 from tqdm import tqdm
 
-DB_CONFIG = safe_load(Path('etc/db_config.yaml').read_text(encoding='UTF-8'))
+script_path = Path( __file__ ).parents[0].absolute()
+config_path = Path(script_path / '..' / 'etc')
+DB_CONFIG = safe_load(Path(config_path /'db_config.yaml').read_text(encoding='UTF-8'))
 
 sys.tracebacklimit = 0
 
