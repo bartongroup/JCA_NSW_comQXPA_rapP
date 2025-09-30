@@ -1,0 +1,15 @@
+---
+databases:
+  "bs":
+    default: True
+    species: "Bacillus subtilis"
+    index_path: "/cluster/gjb_lab/jabbott/Projects/comP_codetest/data/full/bs_genome_info.pkl"
+    genomes: "/cluster/gjb_lab/jabbott/Projects/comP_codetest/data/full/annotations"
+    proteins: "/cluster/gjb_lab/jabbott/Projects/comP_codetest/data/full/fasta/proteins"
+  "sp":
+    default: False
+    species: "Streptococcus pneumoniae"
+    index_path: "/cluster/gjb_lab/jabbott/Projects/comP_codetest/data/full/bs_genome_info.pkl"
+    genomes: "/cluster/gjb_lab/jabbott/Projects/comP_codetest/data/full/annotations"
+    proteins: "/cluster/gjb_lab/jabbott/Projects/comP_codetest/data/full/fasta/proteins"
+ 

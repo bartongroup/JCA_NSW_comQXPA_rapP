@@ -17,6 +17,7 @@ import json
 import pickle
 import re
 import sys
+from yaml import safe_load
 
 from Bio import SeqIO
 from Bio import SearchIO
@@ -24,7 +25,65 @@ import click
 import pandas as pd
 from tqdm import tqdm
 
-sys.tracebacklimit = 1
+DB_CONFIG = safe_load(Path('etc/db_config.yaml').read_text(encoding='UTF-8'))
+
+sys.tracebacklimit = 0
+
+def validate_config():
+    """
+    Validates the database config file, checking for the existance of paths
+
+    Required arguments:
+        None (uses global DB_CONFIG variable)
+    Raises:
+        FileNotFoundError: If any paths in the config file are not found
+    Returns:
+        None
+    """
+
+    for db in DB_CONFIG['databases'].keys():
+
+        genome_path = Path(DB_CONFIG['databases'][db]['genomes'])
+        if not genome_path.exists():
+            raise FileNotFoundError(f"Database path '{genome_path}' for '{db}' not found - please check etc/db_config.yaml")
+
+        protein_path = Path(DB_CONFIG['databases'][db]['proteins'])
+        if not protein_path.exists():
+            raise FileNotFoundError(f"Database path '{protein_path}' for '{db}' not found - please check etc/db_config.yaml")
+        
+        index_path = Path(DB_CONFIG['databases'][db]['index_path'])
+        if not index_path.parent.exists():
+            raise FileNotFoundError(f"Index path '{index_path.parent}' for '{db}' not found - please check etc/db_config.yaml")
+
+def report_database_conf():
+    """
+    Reports list of available databases from config file
+
+    Required arguments:
+        None (uses global DB_CONFIG variable)
+    Returns:
+        None 
+    """
+
+    click.echo("\nAvailable databases:")
+    for db in DB_CONFIG['databases'].keys():
+        click.echo(f"  {db}: {DB_CONFIG['databases'][db]['species']}")
+    click.echo("\n")
+
+def get_default_db():
+    """
+    Returns the default database from the config file
+
+    Required arguments:
+        None (uses global DB_CONFIG variable)
+    Returns:
+        db(str): Default database name
+    """
+
+    for db in DB_CONFIG['databases'].keys():
+        if DB_CONFIG['databases'][db]['default']==True:
+            return db
+
 
 def locus_tag_to_GCA(locus_tag, data):
     """
@@ -204,6 +263,13 @@ def parse_blast(genome_path, record, mapping):
             for hit in result.hits:
 
                 seq_accession = hit.id.split('|')[2]
+                 # Check if the accession looks like a locus tag, and warn if it is...
+
+                match = re.match(r'^[A-Z]{6}_[0-9]{5}$', seq_accession)
+                if match:
+                    click.secho(f"\nWARNING: {seq_accession} looks like a locus tag rather than a genome accession", fg='yellow', bold=True, )
+                    click.echo("Check that this blast record is from a search against the genome database\n")
+                
                 seq_info = mapping[seq_accession]
                 assembly_accession = seq_info['accession']
                 strain = seq_info['strain']
@@ -256,16 +322,15 @@ def parse_blast(genome_path, record, mapping):
 
 @click.group()
 def cli():
-    """Command line tool to extract information from the combined B.subtilis database"""
+    """Command line tool to extract information from the combined genome database"""
     pass
 
 @cli.group()
 def db():
-    """Commands relating to the serialised database"""
+    """Commands relating to the serialised index"""
     pass
 
-@click.option('--db', type=click.Path(exists=False, file_okay=True, dir_okay=False, path_type=Path),
-              required=False, help="Path to serialised database", default='data/full/bs_genome_info.pkl')
+@click.option('--db', type=str, required=False, help="Database to use")
 @click.option('--genome_path', type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
               required=False, help="Path to genome directory", default='data/full/annotations/')
 @click.option('--id_map', type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
@@ -276,11 +341,18 @@ def db():
 def build(genome_path, id_map, db, force):
     """Build the serialised database from genome records and id mapping file"""
 
-    if force and Path(db).exists():
-        Path(db).unlink()
+    if not db:
+        db = get_default_db()
+        click.echo(f"No database specified, using default '{db}'", err=True)
 
-    if Path(db).exists():
-        raise FileExistsError(f"File '{db}' already exists - please remove it, or rerun with `--force` if you wish to rebuild")
+    index = DB_CONFIG['databases'][db]['index_path']
+    genome_path = Path(DB_CONFIG['databases'][db]['genomes'])
+
+    if force and Path(index).exists():
+        Path(index).unlink()
+
+    if Path(index).exists():
+        raise FileExistsError(f"File '{index}' already exists - please remove it, or rerun with `--force` if you wish to rebuild")
 
     data={}
     data['locus_tags'] = parse_genomes(genome_path)
@@ -288,14 +360,13 @@ def build(genome_path, id_map, db, force):
     with open(id_map, 'r', encoding='UTF-8') as fh:
         data['id_map'] = json.load(fh)
 
-    with open(db, 'wb') as out_fh:
+    with open(index, 'wb') as out_fh:
         pickle.dump(data, out_fh)
 
-@click.option('--db', type=click.Path(exists=False, file_okay=True, dir_okay=False, path_type=Path),
-              required=False, help="Path to serialised database", default='data/full/bs_genome_info.pkl')
+@click.option('--db', type=str, required=False, help="Database to use")
 @click.option('--tags', type=str, required=True, help="Comma-separated list of locus tags")
 @click.option('--output', type=click.Path(exists=False, file_okay=True, dir_okay=False, path_type=Path),
-              required=False, help="Path to output file", default=None)
+              required=False, help="Path to output file (default: stdout)", default=None)
 @db.command('tag_info')
 def tag_info(db, tags, output):
     """
@@ -310,10 +381,16 @@ def tag_info(db, tags, output):
         ids(str): Comma-separated list of locus tags
         output(Path): Path to output file (optional)
     """
-    if not Path(db).exists():
-        raise FileNotFoundError(f"File '{db}' not found - please build the database first")
+    if not db:
+        db = get_default_db()
+        click.echo(f"No database specified, using default '{db}'", err=True)
 
-    with open(db, 'rb') as fh:
+    index = DB_CONFIG['databases'][db]['index_path']
+
+    if not Path(index).exists():
+        raise FileNotFoundError(f"File '{index}' not found - please build the database first")
+
+    with open(index, 'rb') as fh:
         data = pickle.load(fh)
 
     if isinstance(tags, str):
@@ -344,18 +421,20 @@ def tag_info(db, tags, output):
 
     if len(outputs) == 0:
         raise RuntimeError("No matching records found") 
+    
 
-    if output:
-        outputs_df.to_csv(output, sep="\t", index=False)
+    if not output:
+        output = sys.stdout
+
+    outputs_df.to_csv(output, sep="\t", index=False)
 
 
-@click.option('--db', type=click.Path(exists=False, file_okay=True, dir_okay=False, path_type=Path),
-              required=False, help="Path to serialised database", default='data/full/bs_genome_info.pkl')
+@click.option('--db', type=str, required=False, help="Database to use")
 @click.option('--tags', type=str, required=True, help="Comma-separated list of locus tags")
 @click.option('--protein_dir', type=click.Path(file_okay=False, dir_okay=True, path_type=Path), required=False,
                help="Path to directory of protein sequences", default="data/full/fasta/proteins")
 @click.option('--outfile', type=click.Path(exists=False, file_okay=True, dir_okay=False, path_type=Path),
-              required=True, help="Path to output file")
+              required=False, help="Path to output file (default: stdout)", default=None)
 
 @db.command('fasta')
 def fasta(db, tags, protein_dir, outfile):
@@ -370,8 +449,14 @@ def fasta(db, tags, protein_dir, outfile):
         protein_dir(Path): Path to directory of protein sequences
         outfile(Path): Path to output file
     """
+    if not db:
+        db = get_default_db()
+        click.echo(f"No database specified, using default '{db}'", err=True)
 
-    with open(db, 'rb') as fh:
+    index = DB_CONFIG['databases'][db]['index_path']
+    protein_dir = Path(DB_CONFIG['databases'][db]['proteins'])
+
+    with open(index, 'rb') as fh:
         data = pickle.load(fh)
 
     if isinstance(tags, str):
@@ -389,25 +474,26 @@ def fasta(db, tags, protein_dir, outfile):
     if len(output_records) == 0:
         raise RuntimeError("No matching records found")
 
-    with open(outfile, 'w', encoding='UTF-8') as outfh:
-        SeqIO.write(output_records, outfh, format='fasta')
+    if outfile:
+        with open(outfile, 'w', encoding='UTF-8') as outfh:
+            SeqIO.write(output_records, outfh, format='fasta')
+    else:
+        with sys.stdout as outfh:
+            SeqIO.write(output_records, outfh, format='fasta')
 
 @cli.group()
 def blast():
     """Commands relating to the blast result handling"""
     pass
 
-@click.option('--genome_path', type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
-              required=False, help="Path to genome directory", default='data/full/annotations/')
-@click.option('--db', type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
-              required=False, help="Path to serialised database", default='data/full/bs_genome_info.pkl')
+@click.option('--db', type=str, required=False, help="Database to use")
 @click.option('--blast', type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
               required=True, help="Path to tab-delimited blast results file")
 @click.option('--output', type=click.Path(exists=False, file_okay=True, dir_okay=False, path_type=Path),
-              required=True, help="Path to output file", default=None)
+              required=False, help="Path to output file (default: stdout)", default=None)
 
 @blast.command('genome_hit_info')
-def genome_hit_info(genome_path, db, blast, output):
+def genome_hit_info(db, blast, output):
     """
     Parses a blast results file to identify genes spanned by hits, and annotates
     hits with genome accession/strain and any genes spanned by the hit
@@ -415,27 +501,37 @@ def genome_hit_info(genome_path, db, blast, output):
 
     """
     Required arguments:
-        genome_path(Path): Path to genome directory
         db(Path): Path to serialised JSON database
         blast(Path): Path to tab-delimited blast results file
         output(Path): Path to output file
     """
+    if not db:
+        db = get_default_db()
+        click.echo(f"No database specified, using default '{db}'", err=True)
 
-    if not Path(db).exists():
+    index = DB_CONFIG['databases'][db]['index_path']
+    genome_dir = Path(DB_CONFIG['databases'][db]['genomes'])
+
+    if not Path(index).exists():
         raise FileNotFoundError(f"File '{db}' not found - please build the database first")
 
-    with open(db, 'rb') as fh:
+    with open(index, 'rb') as fh:
         data = pickle.load(fh)
 
     mapping = data['id_map']
 
     record = Path(blast)
-    parsed_df = parse_blast(genome_path, record, mapping)
+    parsed_df = parse_blast(genome_dir, record, mapping)
 
     if parsed_df.empty:
         raise RuntimeError("No results found in blast file")
 
+    if not output:
+        output = sys.stdout
+
     parsed_df.to_csv(output, sep="\t", index=False)
 
 if __name__ == '__main__':
+
+    validate_config()
     cli()
