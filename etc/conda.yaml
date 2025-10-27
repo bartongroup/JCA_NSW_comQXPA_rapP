@@ -1,16 +1,18 @@
-name: comP_May25
+name: comQXPA
 channels:
-  - conda-forge
   - bioconda
+  - conda-forge
 dependencies:
   - biopython=1.85
+  - blast
+  - bs4=4.13.4
   - drmaa=0.7.9
   - graphviz=12.2.1
+  - lxml=5.4.0
   - pandas=2.2.3
+  - python=3.12
+  - requests=2.32.3
   - snakemake=9.3.4
   - snakemake-executor-plugin-drmaa=0.1.5
-  - bs4=4.13.4
-  - requests=2.32.3
-  - lxml=5.4.0
   - tqdm=4.67.1
-  - pandas
+  - xlsxwriter
