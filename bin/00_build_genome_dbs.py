@@ -506,8 +506,8 @@ def main():
             else:
                 print(f"{accession} could not be successfully downloaded")
 
-    #if args.blast:
-    #    blast_index(fasta_dir, blast_dir, species_name, NCBI_TAXID, 'nucl')
+    if args.blast:
+        blast_index(fasta_dir, blast_dir, species_name, NCBI_TAXID, 'nucl')
 
     with open(biosample_mapping_file, 'w', encoding='UTF-8') as out_fh:
         json.dump(biosample_mapping, out_fh)
