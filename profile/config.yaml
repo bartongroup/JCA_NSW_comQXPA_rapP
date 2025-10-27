@@ -5,6 +5,7 @@ show-failed-logs: True
 keep-going: True
 printshellcmds: True
 rerun-incomplete: True
+skip-script-cleanup: True
 jobname: "comP_{rule}.{jobid}"
 jobs:  200
 ## DRMAA plugin config
@@ -15,6 +16,7 @@ drmaa-args: >
 ## Job Resources
 set-resources:
   - bakta:threads=8
+  - outgroup_bakta:threads=8
   - skani:threads=24
   - busco:threads=8
   - gtdbtk:threads=24
