@@ -73,7 +73,7 @@ for k,v in json_map.items():
         strain_map[v['accession']] = v['strain']
 
 rule all:
-    input: OUTGROUP_TARGETS + PROTEIN_BLAST_DB + BUSCOS + SKANI_PLOT + COMBINED_METADATA + BCGTREE_CONFIG
+    input: OUTGROUP_TARGETS + PROTEIN_BLAST_DB + BUSCOS + SKANI_PLOT + PROTEIN_SPREADSHEET + COMBINED_METADATA + BCGTREE_CONFIG
 
 rule outgroup_seq:
     output: OUTGROUP_FASTA
@@ -174,7 +174,7 @@ rule bakta_proteins_blast_index:
         taxid = NCBI_TAXID
     singularity: "docker://quay.io/biocontainers/blast:2.16.0--h66d330f_5"
     log: 'workflow/logs/bakta_protein_blast_index.log'
-    shell: 'bin/blast_index.sh -f data/full/fasta/proteins \
+    shell: 'bin/blast_index_proteins.sh -f data/full/fasta/proteins \
                                -d data/full/blast_db \
                                -s "{params.species}" \
                                -i {params.taxid} \
