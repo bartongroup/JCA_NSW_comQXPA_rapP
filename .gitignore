@@ -41,7 +41,8 @@ data
 drmaa_logs
 report.html
 reference_sequences/outgroup
-NRSW_tree
+NRSW_trees
+ena_submission
 
 etc/itol_templates/comP_variant_type.txt
 etc/itol_templates/overall_status.txt
