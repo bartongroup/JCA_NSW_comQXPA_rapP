@@ -327,11 +327,8 @@ def cli():
     """Command line tool to extract information from the combined genome database"""
     pass
 
-@cli.group()
-def db():
-    """Commands relating to the serialised index"""
-    pass
 
+@cli.command('build')
 @click.option('--db', type=str, required=False, help="Database to use")
 @click.option('--genome_path', type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
               required=False, help="Path to genome directory", default='data/full/annotations/')
@@ -339,7 +336,6 @@ def db():
               required=False, help="Path to id mapping json file", default='data/full/id_mapping.json')
 @click.option('--force', is_flag=True, help="Force rebuild of database if already present", default=False)
 
-@db.command('build')
 def build(genome_path, id_map, db, force):
     """Build the serialised database from genome records and id mapping file"""
 
@@ -365,6 +361,10 @@ def build(genome_path, id_map, db, force):
     with open(index, 'wb') as out_fh:
         pickle.dump(data, out_fh)
 
+@cli.group()
+def db():
+    """Commands relating to the serialised index"""
+    pass
 @click.option('--db', type=str, required=False, help="Database to use")
 @click.option('--tags', type=str, required=True, help="Comma-separated list of locus tags")
 @click.option('--output', type=click.Path(exists=False, file_okay=True, dir_okay=False, path_type=Path),
