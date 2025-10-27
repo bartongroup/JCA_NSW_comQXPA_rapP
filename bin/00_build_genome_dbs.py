@@ -30,6 +30,7 @@ from common import (
     get_taxa_name,
     clean_description,
     make_request,
+    blast_index,
 )
 
 NCBI_TAXID = "1423"
