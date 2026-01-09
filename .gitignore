@@ -43,6 +43,7 @@ report.html
 reference_sequences/outgroup
 NRSW_trees
 ena_submission
+rapP_checks
 
 etc/itol_templates/comP_variant_type.txt
 etc/itol_templates/overall_status.txt
