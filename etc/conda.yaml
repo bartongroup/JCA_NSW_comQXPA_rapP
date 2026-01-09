@@ -7,11 +7,13 @@ dependencies:
   - blast
   - bs4=4.13.4
   - drmaa=0.7.9
+  - emboss=6.6.0
   - graphviz=12.2.1
   - lxml=5.4.0
   - pandas=2.2.3
   - python=3.12
   - requests=2.32.3
+  - rotate=1.0
   - snakemake=9.3.4
   - snakemake-executor-plugin-drmaa=0.1.5
   - tqdm=4.67.1
