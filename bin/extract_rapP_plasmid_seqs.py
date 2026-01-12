@@ -79,7 +79,7 @@ def check_accession(accession, plasmid_ref):
 
     records = SeqIO.parse(genome_embl, format='embl')
     for record in records:
-        if 'plasmid' in record.description.lower():
+        if 'plasmid' in record.description.lower() or len(record.seq) < 100000:
             plasmid_length = len(record.seq)
             print('Have a plasmid sequence (length: ', len(record.seq), ')')
             features = [f for f in record.features if f.type == 'CDS']
@@ -100,7 +100,7 @@ def check_accession(accession, plasmid_ref):
                     return {
                         'accession': accession,
                         'plasmid_length': plasmid_length,
-                        'identity': identity
+                        'pBS32_identity': identity
                     }
 
 def main():
@@ -119,7 +119,10 @@ def main():
     plasmid_ref = Path(args.plasmid)
 
     metadata = pd.read_excel(args.metadata, header=1)
-    plasmid_accessions = metadata[metadata['genomic_context_rapP'] == 'plasmid']['Accession'].tolist()
+    rapP_plasmids = metadata[metadata['genomic_context_rapP'] == 'plasmid']
+
+    plasmid_accessions = rapP_plasmids['Accession'].tolist()
+    plasmid_metadata = rapP_plasmids[['Accession', 'strain_rapP', 'locus_tag_rapP', 'strand_rapP', 'location_rapP', 'cds_length_rapP']]
 
     results = []
     for accession in plasmid_accessions:
@@ -128,7 +131,9 @@ def main():
             results.append(info)
 
     results_df = pd.DataFrame(results)
-    results_df.to_csv('rapP_context/rapP_plasmid_identities.tsv', sep='\t', index=False)
+
+    plasmid_metadata = pd.merge(plasmid_metadata, results_df, left_on='Accession', right_on='accession', how='left')
+    plasmid_metadata.to_csv('rapP_context/rapP_plasmid_identities.tsv', sep='\t', index=False)
 
 if __name__ == '__main__':
     main()
