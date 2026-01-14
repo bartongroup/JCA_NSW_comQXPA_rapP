@@ -50,6 +50,7 @@ etc/itol_templates/comP_variant_type.txt
 etc/itol_templates/overall_status.txt
 etc/itol_templates/rapP_NT_status.txt
 etc/itol_templates/comP_status.txt
+etc/itol_templates/rapP_genomic_context.txt
 
 # pixi environments
 .pixi
