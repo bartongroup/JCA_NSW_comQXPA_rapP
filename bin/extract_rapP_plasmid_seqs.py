@@ -75,33 +75,40 @@ def check_accession(accession, plasmid_ref):
     """
     print("Checking accession:", accession)
 
-    genome_embl = Path(f'data/full/annotations/{accession}/{accession}.embl')
+    genome_embl = Path(f'data/refined/annotations/{accession}/{accession}.embl')
+    if genome_embl.exists():
 
-    records = SeqIO.parse(genome_embl, format='embl')
-    for record in records:
-        if 'plasmid' in record.description.lower() or len(record.seq) < 100000:
-            plasmid_length = len(record.seq)
-            print('Have a plasmid sequence (length: ', len(record.seq), ')')
-            features = [f for f in record.features if f.type == 'CDS']
-            for feature in features:
-                if 'rap phosphatase' in feature.qualifiers.get('product', [''])[0].lower():
-                    print('Found rapP gene on plasmid:')
+        records = SeqIO.parse(genome_embl, format='embl')
+        for record in records:
+            if 'plasmid' in record.description.lower() or len(record.seq) < 100000:
+                plasmid_length = len(record.seq)
+                print('Have a plasmid sequence (length: ', len(record.seq), ')')
+                features = [f for f in record.features if f.type == 'CDS']
+                for feature in features:
+                    if 'rap phosphatase' in feature.qualifiers.get('product', [''])[0].lower():
+                        print('Found rapP gene on plasmid:')
 
-                    output_fasta = Path(f'data/full/rapP_plasmids/{accession}_rapP_plasmid.fasta')
-                    with open(output_fasta, 'w', encoding='UTF-8') as out_fh:
-                        SeqIO.write(record, out_fh, format='fasta')
+                        output_fasta = Path(f'data/refined/rapP_plasmids/{accession}_rapP_plasmid.fasta')
+                        with open(output_fasta, 'w', encoding='UTF-8') as out_fh:
+                            SeqIO.write(record, out_fh, format='fasta')
 
-                    output_embl = Path(f'data/full/rapP_plasmids/{accession}_rapP_plasmid.embl')
-                    with open(output_embl, 'w', encoding='UTF-8') as out_fh:
-                        SeqIO.write(record, out_fh, format='embl')  
+                        output_embl = Path(f'data/refined/rapP_plasmids/{accession}_rapP_plasmid.embl')
+                        with open(output_embl, 'w', encoding='UTF-8') as out_fh:
+                            SeqIO.write(record, out_fh, format='embl')  
 
-                    identity = get_identity(output_fasta, plasmid_ref)
+                        identity = get_identity(output_fasta, plasmid_ref)
 
-                    return {
-                        'accession': accession,
-                        'plasmid_length': plasmid_length,
-                        'pBS32_identity': identity
-                    }
+                        return {
+                            'accession': accession,
+                            'plasmid_length': plasmid_length,
+                            'pBS32_identity': identity
+                        }
+    return {
+        'accession': None,
+        'plasmid_length': None,
+        'pBS32_identity': None
+    } 
+    
 
 def main():
     """

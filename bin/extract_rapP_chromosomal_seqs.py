@@ -24,40 +24,41 @@ def check_accession(accession, chromosomal_metadata):
     """
     print("Checking accession:", accession)
 
-    genome_embl = Path(f'data/full/annotations/{accession}/{accession}.embl')
+    genome_embl = Path(f'data/refined/annotations/{accession}/{accession}.embl')
 
-    records = SeqIO.parse(genome_embl, format='embl')
-    for record in records:
-        if not 'plasmid' in record.description.lower():
-            features = [f for f in record.features if f.type == 'CDS']
-            for feature in features:
-                if 'rap phosphatase' in feature.qualifiers.get('product', [''])[0].lower():
-                    print('Found rapP gene...extracting sequence') 
+    if genome_embl.exists():
+        records = SeqIO.parse(genome_embl, format='embl')
+        for record in records:
+            if not 'plasmid' in record.description.lower():
+                features = [f for f in record.features if f.type == 'CDS']
+                for feature in features:
+                    if 'rap phosphatase' in feature.qualifiers.get('product', [''])[0].lower():
+                        print('Found rapP gene...extracting sequence') 
 
-                    output_fasta = Path(f'data/full/rapP_chromosomes/{accession}_rapP_chromosome.fasta')
-                    output_embl = Path(f'data/full/rapP_chromosomes/{accession}_rapP_chromosome.embl')
+                        output_fasta = Path(f'data/refined/rapP_chromosomes/{accession}_rapP_chromosome.fasta')
+                        output_embl = Path(f'data/refined/rapP_chromosomes/{accession}_rapP_chromosome.embl')
 
-                    with open(output_fasta, 'w', encoding='UTF-8') as out_fh:
-                        SeqIO.write(record, out_fh, format='fasta')
+                        with open(output_fasta, 'w', encoding='UTF-8') as out_fh:
+                            SeqIO.write(record, out_fh, format='fasta')
 
-                    with open(output_embl, 'w', encoding='UTF-8') as out_fh:
-                        SeqIO.write(record, out_fh, format='embl')  
+                        with open(output_embl, 'w', encoding='UTF-8') as out_fh:
+                            SeqIO.write(record, out_fh, format='embl')  
 
-                    print('Extracting rapP locus region...')
-                    start, end = chromosomal_metadata.loc[chromosomal_metadata['Accession'] == accession, 'location_rapP'].values[0].split('-')
-                    start = int(start) - 10000
-                    end = int(end) + 10000
+                        print('Extracting rapP locus region...')
+                        start, end = chromosomal_metadata.loc[chromosomal_metadata['Accession'] == accession, 'location_rapP'].values[0].split('-')
+                        start = int(start) - 10000
+                        end = int(end) + 10000
 
-                    record = record[start:end]
+                        record = record[start:end]
 
-                    locus_fasta = Path(f'data/full/rapP_loci/{accession}_rapP_region.fasta')
-                    locus_embl = Path(f'data/full/rapP_loci/{accession}_rapP_region.embl')
+                        locus_fasta = Path(f'data/refined/rapP_loci/{accession}_rapP_region.fasta')
+                        locus_embl = Path(f'data/refined/rapP_loci/{accession}_rapP_region.embl')
 
-                    with open(locus_fasta, 'w', encoding='UTF-8') as out_fh:
-                        SeqIO.write(record, out_fh, format='fasta')
+                        with open(locus_fasta, 'w', encoding='UTF-8') as out_fh:
+                            SeqIO.write(record, out_fh, format='fasta')
 
-                    with open(locus_embl, 'w', encoding='UTF-8') as out_fh:
-                        SeqIO.write(record, out_fh, format='embl')  
+                        with open(locus_embl, 'w', encoding='UTF-8') as out_fh:
+                            SeqIO.write(record, out_fh, format='embl')  
 
 def main():
     """
