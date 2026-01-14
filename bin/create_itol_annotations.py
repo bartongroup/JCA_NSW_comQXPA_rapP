@@ -13,6 +13,7 @@ rapP_straints.txt - tab delimited file (with header) detailing rapP status
 """
 
 import pandas as pd
+import numpy as np
 
 def get_line(accession, colour):
     """
@@ -99,6 +100,84 @@ DATA
 
     return HEADER
 
+def get_rapP_context_header():
+    """
+    Returns text header for displaying genomic context of rapP
+
+    Required parameters:
+        None
+
+    Returns:
+        header(str): header block
+    """
+
+    HEADER = '''
+DATASET_BINARY
+SEPARATOR COMMA
+
+DATASET_LABEL,Genomic Context, Type
+
+LEGEND_TITLE,Genomic Context
+LEGEND_SCALE,1
+LEGEND_HORIZONTAL,0
+LEGEND_SHAPES,1,1
+LEGEND_COLORS,#ffffff,#44aa99
+LEGEND_LABELS,Plasmid,Chromosome
+LEGEND_SHAPE_SCALES,1,1
+
+LEGEND_TITLE,rapP Type
+LEGEND_SCALE,1
+LEGEND_HORIZONTAL,0
+LEGEND_SHAPES,1,1
+LEGEND_COLORS,#ffffff,#882255
+LEGEND_LABELS,N,T
+LEGEND_SHAPE_SCALES,1,1
+
+COLOR,#000000
+FIELD_SHAPES,1,1
+FIELD_LABELS,Context,Type
+FIELD_COLORS,#44aa99,#882255
+
+HEIGHT_FACTOR,1.5
+SHOW_LABELS,1
+LABEL_SHIFT,10
+
+DATA
+'''
+
+    return HEADER
+
+# def get_rapP_chrom_insert_header():
+#     """
+#     Returns text header for rapP chromosome insertion status 
+
+#     Required parameters:
+#         None
+
+#     Returns:
+#         header(str): header block
+#     """
+
+#     HEADER = '''
+# DATASET_BINARY
+# SEPARATOR COMMA
+
+# DATASET_LABEL,Overall_status
+
+# COLOR,#000000
+# FIELD_SHAPES,2,2,2
+# FIELD_LABELS,comP_mutant,rapP,both
+# FIELD_COLORS,#6a51a3,#4292c6,#ff7f00
+
+# HEIGHT_FACTOR,1.5
+# SHOW_LABELS,1
+# LABEL_SHIFT,10
+
+# DATA
+# '''
+
+    return HEADER
+
 def main():
 
     """
@@ -114,11 +193,13 @@ def main():
     overall_df = overall_df.merge(comP_df, left_on='Accession', right_on='Genome Accession', how = "left")
 
     rapP_df = pd.read_csv('rapP_strains.txt', sep="\t")
-    rapP_df = rapP_df[['Genome Accession', 'rapP', 'N or T']]
+    rapP_df = rapP_df[['Genome Accession', 'rapP', 'Chromosome_plasmid','N or T']]#, '5prime_gene', 'insertion_type']]
+    
+    rapP_context_df = pd.merge(overall_df, rapP_df, left_on='Accession', right_on='Genome Accession', how = "left")
 
     overall_df = overall_df.merge(rapP_df, left_on='Accession', right_on='Genome Accession', how = "left")
     overall_df = overall_df[['Accession','comP_mutant','rapP', 'N or T']]
-    overall_df.fillna(value='0', inplace=True)
+    overall_df.fillna(value=0, inplace=True)
     overall_df = overall_df.astype({"comP_mutant": int, 'rapP': int})
 
     overall_df['both']=overall_df.sum(numeric_only=True, min_count=0, axis=1)
@@ -157,6 +238,19 @@ def main():
     comP_lines = comP['Accession'].apply(lambda x: get_line(x, '#6a51a3'))
     with open('comP_status.txt', 'w', encoding='UTF-8') as fh:
         for block in (header, "\n".join(comP_lines) ):
+            fh.write(block)
+
+    # for rapP context
+    header = get_rapP_context_header()
+    context_df = rapP_context_df[['Accession', 'Chromosome_plasmid','N or T']]
+    context_df['Chromosome_plasmid'] = context_df['Chromosome_plasmid'].map({'chromosome': 1, 'plasmid': 0, np.nan:-1})
+    context_df['N or T'] = context_df['N or T'].map({'N': 1, 'T': 0, np.nan:-1})
+
+    print(context_df)
+    data_block = context_df.to_csv(index=False, header=False)
+
+    with open('rapP_genomic_context.txt', 'w', encoding='UTF-8') as fh:
+        for block in (header, data_block):
             fh.write(block)
 
 
